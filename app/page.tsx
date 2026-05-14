@@ -61,33 +61,12 @@ export default function Home() {
       {/* Center: header + map */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex items-center justify-between px-4 py-2.5 bg-[#0a1628]/80 backdrop-blur-sm border-b border-white/10 flex-shrink-0 z-20 relative">
-          <div className="flex items-center gap-2.5">
-            {/* Mobile: hamburger */}
-            <button
-              className="md:hidden w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white transition-colors"
-              onClick={() => { setMobileSidebarOpen(true); setMobilePanelOpen(false); }}
-              aria-label="Abrir países"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
-              </svg>
-            </button>
+          <div className="flex items-center gap-2">
             <span className="text-xl">🎵</span>
             <span className="text-white font-bold text-lg tracking-tight">SoundGlobal</span>
             <span className="text-gray-500 text-xs hidden sm:block">by theserjs</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <PoweredBy />
-            {/* Mobile: global panel button */}
-            <button
-              className="md:hidden w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white transition-colors ml-1"
-              onClick={() => { setMobilePanelOpen(true); setMobileSidebarOpen(false); }}
-              aria-label="Top 50 Global"
-            >
-              <span className="text-lg">🌍</span>
-            </button>
-          </div>
+          <PoweredBy />
         </header>
 
         <div className="flex-1 relative">
@@ -95,6 +74,26 @@ export default function Home() {
             onCountryClick={handleCountryClick}
             selectedCode={selectedCountry?.code ?? null}
           />
+
+          {/* Mobile FAB — top strip: open countries sidebar */}
+          <button
+            className="md:hidden absolute top-3 left-4 z-10 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors"
+            onClick={() => { setMobileSidebarOpen(true); setMobilePanelOpen(false); }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+            Países
+          </button>
+
+          {/* Mobile FAB — bottom strip: open global panel */}
+          <button
+            className="md:hidden absolute bottom-14 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors whitespace-nowrap"
+            onClick={() => { setMobilePanelOpen(true); setMobileSidebarOpen(false); }}
+          >
+            <span>🌍</span>
+            Top 50 Global
+          </button>
         </div>
       </div>
 

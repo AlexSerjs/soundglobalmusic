@@ -79,7 +79,7 @@ export default function PoweredBy() {
   }, []);
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 sm:gap-3">
       {/* Deezer */}
       <a
         href="https://www.deezer.com"
