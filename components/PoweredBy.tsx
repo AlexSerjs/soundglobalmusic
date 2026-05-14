@@ -2,6 +2,21 @@
 
 import { useEffect, useRef } from "react";
 
+// Wikidata logo (stylised "WD" with data bars)
+function WikidataLogo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor">
+      {/* Vertical bars — Wikidata's iconic mark */}
+      <rect x="8"  y="20" width="10" height="60" rx="2"/>
+      <rect x="22" y="10" width="10" height="80" rx="2"/>
+      <rect x="36" y="30" width="10" height="50" rx="2"/>
+      <rect x="50" y="15" width="10" height="70" rx="2"/>
+      <rect x="64" y="35" width="10" height="45" rx="2"/>
+      <rect x="78" y="25" width="10" height="55" rx="2"/>
+    </svg>
+  );
+}
+
 // MusicBrainz SVG logo (stylised orange "MB" mark)
 function MusicBrainzLogo({ size = 28 }: { size?: number }) {
   return (
@@ -43,10 +58,11 @@ export default function PoweredBy() {
   const ref1 = useRef<HTMLDivElement>(null);
   const ref2 = useRef<HTMLDivElement>(null);
   const ref3 = useRef<HTMLDivElement>(null);
+  const ref4 = useRef<HTMLDivElement>(null);
 
   // Random glitch trigger
   useEffect(() => {
-    const elements = [ref1.current, ref2.current, ref3.current].filter(Boolean) as HTMLDivElement[];
+    const elements = [ref1.current, ref2.current, ref3.current, ref4.current].filter(Boolean) as HTMLDivElement[];
 
     const trigger = () => {
       const el = elements[Math.floor(Math.random() * elements.length)];
@@ -109,6 +125,31 @@ export default function PoweredBy() {
           </div>
           <div className="glitch-layer glitch-cyan" aria-hidden>
             <LastfmLogo size={32} />
+          </div>
+        </div>
+      </a>
+
+      <span className="text-gray-700 text-xs">×</span>
+
+      {/* Wikidata */}
+      <a
+        href="https://www.wikidata.org"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group relative"
+        title="Artist nationality via Wikidata"
+      >
+        <div
+          ref={ref4}
+          className="powered-logo text-[#006699] group-hover:text-[#0088cc] transition-colors"
+        >
+          <WikidataLogo size={28} />
+          <span className="block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">WIKIDATA</span>
+          <div className="glitch-layer glitch-red" aria-hidden>
+            <WikidataLogo size={28} />
+          </div>
+          <div className="glitch-layer glitch-cyan" aria-hidden>
+            <WikidataLogo size={28} />
           </div>
         </div>
       </a>
