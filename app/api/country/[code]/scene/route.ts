@@ -24,12 +24,13 @@ async function lfmGet<T>(params: Record<string, string | number>): Promise<T> {
 // Wikidata: musicians who are citizens of the given country (ISO alpha-2)
 // Returns names sorted by Wikipedia sitelinks count (proxy for fame)
 async function getArtistsFromWikidata(countryCode: string): Promise<string[]> {
+  // Simple query — no GROUP BY, no ORDER BY: fast for any country size.
+  // Last.fm listener counts sort them afterwards.
   const sparql = `
-    SELECT DISTINCT ?name (MAX(?sl) AS ?sitelinks) WHERE {
+    SELECT DISTINCT ?name WHERE {
       ?country wdt:P297 "${countryCode}" .
       ?artist wdt:P27 ?country ;
               wdt:P106 ?occ ;
-              wikibase:sitelinks ?sl ;
               rdfs:label ?name .
       FILTER(LANG(?name) = "en")
       VALUES ?occ {
@@ -37,17 +38,15 @@ async function getArtistsFromWikidata(countryCode: string): Promise<string[]> {
         wd:Q134556 wd:Q2252262 wd:Q855091 wd:Q4220920 wd:Q183945
       }
     }
-    GROUP BY ?name
-    ORDER BY DESC(?sitelinks)
-    LIMIT 40
+    LIMIT 60
   `;
 
   const res = await axios.get<{
-    results: { bindings: { name: { value: string }; sitelinks: { value: string } }[] };
+    results: { bindings: { name: { value: string } }[] };
   }>(WIKIDATA_SPARQL, {
     params: { query: sparql, format: "json" },
     headers: { "User-Agent": UA, Accept: "application/sparql-results+json" },
-    timeout: 12000,
+    timeout: 15000,
   });
 
   return res.data.results.bindings.map((b) => b.name.value);
