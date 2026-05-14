@@ -4,7 +4,7 @@ services:
     container_name: soundglobalmusic
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - LASTFM_API_KEY=${LASTFM_API_KEY}
       - REDIS_URL=${REDIS_URL:-}
