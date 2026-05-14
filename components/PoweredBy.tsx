@@ -93,7 +93,7 @@ export default function PoweredBy() {
           className="powered-logo text-[#A238FF] group-hover:text-[#bf5fff] transition-colors"
         >
           <DeezerLogo size={32} />
-          <span className="block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">DEEZER</span>
+          <span className="hidden sm:block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">DEEZER</span>
           {/* Glitch layers */}
           <div className="glitch-layer glitch-red" aria-hidden>
             <DeezerLogo size={32} />
@@ -119,7 +119,7 @@ export default function PoweredBy() {
           className="powered-logo text-[#d51007] group-hover:text-[#ff2010] transition-colors"
         >
           <LastfmLogo size={32} />
-          <span className="block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">LAST.FM</span>
+          <span className="hidden sm:block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">LAST.FM</span>
           <div className="glitch-layer glitch-red" aria-hidden>
             <LastfmLogo size={32} />
           </div>
@@ -144,7 +144,7 @@ export default function PoweredBy() {
           className="powered-logo text-[#006699] group-hover:text-[#0088cc] transition-colors"
         >
           <WikidataLogo size={28} />
-          <span className="block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">WIKIDATA</span>
+          <span className="hidden sm:block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">WIKIDATA</span>
           <div className="glitch-layer glitch-red" aria-hidden>
             <WikidataLogo size={28} />
           </div>
@@ -169,7 +169,7 @@ export default function PoweredBy() {
           className="powered-logo text-[#eb743b] group-hover:text-[#ff8c4f] transition-colors"
         >
           <MusicBrainzLogo size={28} />
-          <span className="block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">MUSICBRAINZ</span>
+          <span className="hidden sm:block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">MUSICBRAINZ</span>
           <div className="glitch-layer glitch-red" aria-hidden>
             <MusicBrainzLogo size={28} />
           </div>

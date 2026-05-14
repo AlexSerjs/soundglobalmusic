@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   ComposableMap,
   Geographies,
   Geography,
   ZoomableGroup,
 } from "react-simple-maps";
-import { isAvailable } from "@/lib/playlists";
-import { COUNTRY_MAP } from "@/lib/playlists";
+import { isAvailable, COUNTRY_MAP } from "@/lib/playlists";
+
+const AVAILABLE_CODES = Object.keys(COUNTRY_MAP);
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -45,6 +46,27 @@ export default function WorldMap({ onCountryClick, selectedCode }: WorldMapProps
   const [hoveredCode, setHoveredCode]   = useState<string | null>(null);
   const [tooltip, setTooltip]           = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoom]                 = useState(1);
+  const [glitchSet, setGlitchSet]       = useState<Set<string>>(new Set());
+  const [glitchPhase, setGlitchPhase]   = useState(false);
+
+  // Rapid phase toggle for glitch color alternation
+  useEffect(() => {
+    const id = setInterval(() => setGlitchPhase((p) => !p), 80);
+    return () => clearInterval(id);
+  }, []);
+
+  // Randomly glitch 2-3 countries every few seconds
+  useEffect(() => {
+    const trigger = () => {
+      const count = 2 + Math.floor(Math.random() * 2);
+      const shuffled = [...AVAILABLE_CODES].sort(() => Math.random() - 0.5);
+      setGlitchSet(new Set(shuffled.slice(0, count)));
+      setTimeout(() => setGlitchSet(new Set()), 400 + Math.random() * 250);
+      setTimeout(trigger, 2500 + Math.random() * 3500);
+    };
+    const t = setTimeout(trigger, 1500 + Math.random() * 2000);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleClick = useCallback(
     (geo: { properties: Record<string, string | number | undefined> }) => {
@@ -85,15 +107,17 @@ export default function WorldMap({ onCountryClick, selectedCode }: WorldMapProps
               geographies.map((geo) => {
                 const geoName = String(geo.properties.name ?? "");
                 const alpha2  = NAME_TO_ALPHA2[geoName];
-                const available = alpha2 ? isAvailable(alpha2) : false;
-                const hovered   = hoveredCode === alpha2;
-                const selected  = selectedCode === alpha2;
+                const available  = alpha2 ? isAvailable(alpha2) : false;
+                const hovered    = hoveredCode === alpha2;
+                const selected   = selectedCode === alpha2;
+                const glitching  = alpha2 ? glitchSet.has(alpha2) : false;
 
                 let fill = "#162032";
                 if (available) {
-                  if (selected)    fill = "#0ea5e9";
-                  else if (hovered) fill = "#38bdf8";
-                  else              fill = "#1e4d7b";
+                  if (selected)         fill = "#0ea5e9";
+                  else if (glitching)   fill = glitchPhase ? "#38bdf8" : "#e11d48";
+                  else if (hovered)     fill = "#38bdf8";
+                  else                  fill = "#1e4d7b";
                 }
 
                 return (
