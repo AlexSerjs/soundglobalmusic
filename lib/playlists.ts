@@ -1,0 +1,68 @@
+// Country code (ISO alpha-2) → country name as used by Last.fm geo API
+// Last.fm uses English country names for geo.gettopartists / geo.gettoptracks
+export const COUNTRY_MAP: Record<string, { name: string; lfmName: string }> = {
+  AR: { name: "Argentina",           lfmName: "Argentina" },
+  AU: { name: "Australia",           lfmName: "Australia" },
+  AT: { name: "Austria",             lfmName: "Austria" },
+  BE: { name: "Belgium",             lfmName: "Belgium" },
+  BR: { name: "Brazil",              lfmName: "Brazil" },
+  BG: { name: "Bulgaria",            lfmName: "Bulgaria" },
+  CA: { name: "Canada",              lfmName: "Canada" },
+  CL: { name: "Chile",               lfmName: "Chile" },
+  CO: { name: "Colombia",            lfmName: "Colombia" },
+  HR: { name: "Croatia",             lfmName: "Croatia" },
+  CZ: { name: "Czech Republic",      lfmName: "Czech Republic" },
+  DK: { name: "Denmark",             lfmName: "Denmark" },
+  EC: { name: "Ecuador",              lfmName: "Ecuador" },
+  EG: { name: "Egypt",               lfmName: "Egypt" },
+  EE: { name: "Estonia",             lfmName: "Estonia" },
+  FI: { name: "Finland",             lfmName: "Finland" },
+  FR: { name: "France",              lfmName: "France" },
+  DE: { name: "Germany",             lfmName: "Germany" },
+  GR: { name: "Greece",              lfmName: "Greece" },
+  HK: { name: "Hong Kong",           lfmName: "Hong Kong" },
+  HU: { name: "Hungary",             lfmName: "Hungary" },
+  IN: { name: "India",               lfmName: "India" },
+  ID: { name: "Indonesia",           lfmName: "Indonesia" },
+  IE: { name: "Ireland",             lfmName: "Ireland" },
+  IL: { name: "Israel",              lfmName: "Israel" },
+  IT: { name: "Italy",               lfmName: "Italy" },
+  JP: { name: "Japan",               lfmName: "Japan" },
+  LV: { name: "Latvia",              lfmName: "Latvia" },
+  LT: { name: "Lithuania",           lfmName: "Lithuania" },
+  MY: { name: "Malaysia",            lfmName: "Malaysia" },
+  MX: { name: "Mexico",              lfmName: "Mexico" },
+  NL: { name: "Netherlands",         lfmName: "Netherlands" },
+  NZ: { name: "New Zealand",         lfmName: "New Zealand" },
+  NG: { name: "Nigeria",             lfmName: "Nigeria" },
+  NO: { name: "Norway",              lfmName: "Norway" },
+  PK: { name: "Pakistan",            lfmName: "Pakistan" },
+  PE: { name: "Peru",                lfmName: "Peru" },
+  PH: { name: "Philippines",         lfmName: "Philippines" },
+  PL: { name: "Poland",              lfmName: "Poland" },
+  PT: { name: "Portugal",            lfmName: "Portugal" },
+  RO: { name: "Romania",             lfmName: "Romania" },
+  RU: { name: "Russia",              lfmName: "Russian Federation" },
+  SA: { name: "Saudi Arabia",        lfmName: "Saudi Arabia" },
+  ZA: { name: "South Africa",        lfmName: "South Africa" },
+  KR: { name: "South Korea",         lfmName: "South Korea" },
+  ES: { name: "Spain",               lfmName: "Spain" },
+  SE: { name: "Sweden",              lfmName: "Sweden" },
+  CH: { name: "Switzerland",         lfmName: "Switzerland" },
+  TW: { name: "Taiwan",              lfmName: "Taiwan" },
+  TH: { name: "Thailand",            lfmName: "Thailand" },
+  TR: { name: "Turkey",              lfmName: "Turkey" },
+  UA: { name: "Ukraine",             lfmName: "Ukraine" },
+  GB: { name: "United Kingdom",      lfmName: "United Kingdom" },
+  US: { name: "United States",       lfmName: "United States" },
+  VE: { name: "Venezuela",           lfmName: "Venezuela" },
+  VN: { name: "Vietnam",             lfmName: "Vietnam" },
+};
+
+export function getCountryInfo(code: string) {
+  return COUNTRY_MAP[code.toUpperCase()] ?? null;
+}
+
+export function isAvailable(code: string): boolean {
+  return code.toUpperCase() in COUNTRY_MAP;
+}

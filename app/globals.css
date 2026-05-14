@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0f;
+  --foreground: #ffffff;
 }
 
 @theme inline {
@@ -12,15 +12,89 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #0d1b2a;
+  --foreground: #ffffff;
 }
 
+html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+  overflow: hidden;
+}
+
+@keyframes animate-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: animate-in 0.2s ease-out;
+}
+
+/* Custom scrollbar for modal */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Glitch effect ─────────────────────────────────────────────────────── */
+.powered-logo {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.glitch-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.glitch-red  { color: #ff003c; }
+.glitch-cyan { color: #00e5ff; }
+
+/* When .glitching is added via JS, animate the layers */
+.glitching .glitch-red {
+  animation: glitch-shift-red 0.6s steps(1) forwards;
+}
+.glitching .glitch-cyan {
+  animation: glitch-shift-cyan 0.6s steps(1) forwards;
+}
+.glitching {
+  animation: glitch-body 0.6s steps(1) forwards;
+}
+
+@keyframes glitch-body {
+  0%   { transform: translate(0); filter: none; }
+  10%  { transform: translate(-1px, 1px); filter: brightness(1.4); }
+  20%  { transform: translate(1px, -1px); }
+  30%  { transform: translate(0); filter: none; }
+  60%  { transform: translate(2px, 0); filter: hue-rotate(40deg); }
+  70%  { transform: translate(-2px, 0); }
+  80%  { transform: translate(0); filter: none; }
+  100% { transform: translate(0); filter: none; }
+}
+
+@keyframes glitch-shift-red {
+  0%   { opacity: 0; }
+  10%  { opacity: 0.7; transform: translate(-3px, 0); clip-path: polygon(0 15%, 100% 15%, 100% 40%, 0 40%); }
+  20%  { opacity: 0.7; transform: translate(2px, 0);  clip-path: polygon(0 60%, 100% 60%, 100% 80%, 0 80%); }
+  30%  { opacity: 0; }
+  60%  { opacity: 0.5; transform: translate(-2px, 0); clip-path: polygon(0 5%, 100% 5%, 100% 25%, 0 25%); }
+  70%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@keyframes glitch-shift-cyan {
+  0%   { opacity: 0; }
+  10%  { opacity: 0; }
+  20%  { opacity: 0.6; transform: translate(3px, 0);  clip-path: polygon(0 40%, 100% 40%, 100% 65%, 0 65%); }
+  30%  { opacity: 0; }
+  50%  { opacity: 0.5; transform: translate(-1px, 0); clip-path: polygon(0 70%, 100% 70%, 100% 90%, 0 90%); }
+  60%  { opacity: 0; }
+  100% { opacity: 0; }
 }
