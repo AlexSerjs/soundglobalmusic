@@ -79,9 +79,7 @@ export default function WorldMap({ onCountryClick, selectedCode }: WorldMapProps
         style={{ width: "100%", height: "100%" }}
         projectionConfig={{ scale: 160 }}
       >
-        <ZoomableGroup zoom={zoom} minZoom={0.8} maxZoom={8}
-          onMoveEnd={({ zoom: z }) => setZoom(z)}
-        >
+        <ZoomableGroup zoom={zoom} minZoom={0.8} maxZoom={8}>
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
               geographies.map((geo) => {
