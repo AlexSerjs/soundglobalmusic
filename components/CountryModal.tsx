@@ -176,8 +176,12 @@ export default function CountryModal({ countryCode, countryName, onClose }: Coun
               </div>
             ) : sceneArtists !== null ? (
               <div className="space-y-3">
-                <p className="text-xs text-gray-600 uppercase tracking-wider mb-3">
+                <p className="text-xs text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-2">
                   Artistas populares de {countryName} · Su canción más escuchada
+                  {sceneArtists[0] && "source" in sceneArtists[0] &&
+                    (sceneArtists[0] as { source?: string }).source === "groq" && (
+                    <span className="text-cyan-400/70 normal-case tracking-normal">🤖 vía Groq AI</span>
+                  )}
                 </p>
                 {sceneArtists.length === 0 ? (
                   <p className="text-center text-gray-500 text-sm py-10">

@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getCountryInfo } from "@/lib/playlists";
+import { GROQ_COUNTRY_NAMES } from "@/lib/countries";
+import { getArtistsFromGroq } from "@/lib/groq";
 import { findTrackOnDeezer, findArtistOnDeezer } from "@/lib/deezer";
 import axios from "axios";
 
-const CACHE_TTL = 60 * 60 * 6; // 6h
-const LFM = "https://ws.audioscrobbler.com/2.0/";
+const CACHE_TTL      = 60 * 60 * 6;   // 6 h  (Wikidata results)
+const GROQ_CACHE_TTL = 60 * 60 * 24;  // 24 h (AI results)
+const LFM            = "https://ws.audioscrobbler.com/2.0/";
 const WIKIDATA_SPARQL = "https://query.wikidata.org/sparql";
-const UA = "SoundGlobal/1.0 (soundglobal@theserjs.es)";
+const UA             = "SoundGlobal/1.0 (soundglobal@theserjs.es)";
 
-function lfmKey() {
-  return process.env.LASTFM_API_KEY!;
-}
+function lfmKey() { return process.env.LASTFM_API_KEY!; }
 
 async function lfmGet<T>(params: Record<string, string | number>): Promise<T> {
   const res = await axios.get<T>(LFM, {
@@ -21,11 +22,8 @@ async function lfmGet<T>(params: Record<string, string | number>): Promise<T> {
   return res.data;
 }
 
-// Wikidata: musicians who are citizens of the given country (ISO alpha-2)
-// Returns names sorted by Wikipedia sitelinks count (proxy for fame)
+// Wikidata: musicians who are citizens of countryCode (ISO alpha-2)
 async function getArtistsFromWikidata(countryCode: string): Promise<string[]> {
-  // Simple query — no GROUP BY, no ORDER BY: fast for any country size.
-  // Last.fm listener counts sort them afterwards.
   const sparql = `
     SELECT DISTINCT ?name WHERE {
       ?country wdt:P297 "${countryCode}" .
@@ -59,6 +57,7 @@ export interface SceneArtist {
   genres: string[];
   lastfmUrl: string;
   deezerUrl: string;
+  source?: "wikidata" | "groq";
   topTrack: {
     name: string;
     albumImageUrl: string;
@@ -68,6 +67,90 @@ export interface SceneArtist {
   } | null;
 }
 
+// Enrich a list of {name, topSong?} with Last.fm listeners + Deezer data
+async function enrichWithDeezer(
+  candidates: { name: string; topSong?: string; genre?: string }[],
+  source: "wikidata" | "groq"
+): Promise<SceneArtist[]> {
+  // Get Last.fm listener counts in parallel
+  const withListeners = await Promise.all(
+    candidates.slice(0, 25).map(async (c) => {
+      try {
+        const data = await lfmGet<{
+          artist?: {
+            stats?: { listeners: string };
+            tags?: { tag: { name: string }[] };
+            url?: string;
+          };
+        }>({ method: "artist.getinfo", artist: c.name, autocorrect: 1 });
+        return {
+          name: c.name,
+          topSong: c.topSong,
+          genre: c.genre,
+          listeners: parseInt(data.artist?.stats?.listeners ?? "0", 10),
+          genres: data.artist?.tags?.tag?.slice(0, 3).map((t) => t.name) ?? [],
+          lastfmUrl: data.artist?.url ?? `https://www.last.fm/music/${encodeURIComponent(c.name)}`,
+        };
+      } catch {
+        return { name: c.name, topSong: c.topSong, genre: c.genre, listeners: 0, genres: c.genre ? [c.genre] : [], lastfmUrl: "" };
+      }
+    })
+  );
+
+  // Sort by listeners, take top 5
+  const top5 = withListeners
+    .filter((a) => a.listeners > 0)
+    .sort((a, b) => b.listeners - a.listeners)
+    .slice(0, 5);
+
+  // Fallback: if Last.fm has no data, use original order
+  const finalList = top5.length >= 2 ? top5 : withListeners.slice(0, 5);
+
+  // Enrich with Deezer images + top track preview
+  return Promise.all(
+    finalList.map(async ({ name, topSong, listeners, genres, lastfmUrl }) => {
+      // Get Deezer artist + top track in parallel
+      const [topTrackNameResult, deezerArtist] = await Promise.allSettled([
+        topSong
+          ? Promise.resolve(topSong)                          // Groq already gave us the song
+          : lfmGet<{ toptracks: { track: { name: string }[] } }>({
+              method: "artist.gettoptracks",
+              artist: name,
+              autocorrect: 1,
+              limit: 1,
+            }).then((d) => d.toptracks?.track?.[0]?.name ?? null),
+        findArtistOnDeezer(name),
+      ]);
+
+      const deezerArt    = deezerArtist.status === "fulfilled" ? deezerArtist.value : null;
+      const topTrackName = topTrackNameResult.status === "fulfilled" ? topTrackNameResult.value : null;
+
+      let topTrack: SceneArtist["topTrack"] = null;
+      if (topTrackName) {
+        const deezerTrack = await findTrackOnDeezer(topTrackName, name);
+        topTrack = {
+          name: topTrackName,
+          albumImageUrl: deezerTrack?.albumImageUrl ?? deezerArt?.imageUrl ?? "",
+          previewUrl:    deezerTrack?.previewUrl ?? "",
+          deezerUrl:     deezerTrack?.deezerUrl ?? "",
+          durationMs:    deezerTrack?.durationMs ?? 0,
+        };
+      }
+
+      return {
+        name,
+        imageUrl:  deezerArt?.imageUrl ?? "",
+        listeners,
+        genres,
+        lastfmUrl,
+        deezerUrl: deezerArt?.deezerUrl ?? "",
+        source,
+        topTrack,
+      } satisfies SceneArtist;
+    })
+  );
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
@@ -75,101 +158,53 @@ export async function GET(
   const { code } = await params;
   const countryCode = code.toUpperCase();
 
-  const info = getCountryInfo(countryCode);
-  if (!info) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Accept both Last.fm countries AND Groq countries (previously blocked Groq)
+  const isKnown = getCountryInfo(countryCode) !== null || countryCode in GROQ_COUNTRY_NAMES;
+  if (!isKnown) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  const cacheKey = `scene:v5:${countryCode}`;
+  const cacheKey = `scene:v6:${countryCode}`;
   const cached = await cacheGet<SceneArtist[]>(cacheKey);
   if (cached) return NextResponse.json({ artists: cached }, { headers: { "X-Cache": "HIT" } });
 
   try {
-    // 1. Get musicians FROM this country via Wikidata (sorted by Wikipedia notability)
-    const candidates = await getArtistsFromWikidata(countryCode);
+    // ── 1. Try Wikidata first (works for any country with an ISO code) ────────
+    let artists: SceneArtist[] = [];
+    let usedGroqCache = false;
 
-    if (candidates.length === 0) {
-      return NextResponse.json({ artists: [] });
+    try {
+      const candidates = await getArtistsFromWikidata(countryCode);
+      if (candidates.length > 0) {
+        artists = await enrichWithDeezer(
+          candidates.map((name) => ({ name })),
+          "wikidata"
+        );
+      }
+    } catch (wikidataErr) {
+      console.warn(`[scene/${countryCode}] Wikidata failed:`, wikidataErr);
     }
 
-    // 2. Get Last.fm listener counts for all candidates in parallel (first 25)
-    const withListeners = await Promise.all(
-      candidates.slice(0, 25).map(async (name) => {
-        try {
-          const data = await lfmGet<{
-            artist?: {
-              stats?: { listeners: string };
-              tags?: { tag: { name: string }[] };
-              url?: string;
-            };
-          }>({ method: "artist.getinfo", artist: name, autocorrect: 1 });
-          return {
-            name,
-            listeners: parseInt(data.artist?.stats?.listeners ?? "0", 10),
-            genres: data.artist?.tags?.tag?.slice(0, 3).map((t) => t.name) ?? [],
-            lastfmUrl: data.artist?.url ?? `https://www.last.fm/music/${encodeURIComponent(name)}`,
-          };
-        } catch {
-          return { name, listeners: 0, genres: [], lastfmUrl: "" };
+    // ── 2. Groq fallback when Wikidata returned nothing ───────────────────────
+    if (artists.length === 0) {
+      const countryName = GROQ_COUNTRY_NAMES[countryCode]
+        ?? getCountryInfo(countryCode)?.name;
+
+      if (countryName) {
+        const groqArtists = await getArtistsFromGroq(countryName);
+        if (groqArtists.length > 0) {
+          artists = await enrichWithDeezer(
+            groqArtists.map((a) => ({ name: a.name, topSong: a.topSong, genre: a.genre })),
+            "groq"
+          );
+          usedGroqCache = true;
         }
-      })
-    );
+      }
+    }
 
-    // 3. Sort by Last.fm listeners, take top 5
-    const top5 = withListeners
-      .filter((a) => a.listeners > 0)
-      .sort((a, b) => b.listeners - a.listeners)
-      .slice(0, 5);
-
-    // If Last.fm has no data for these artists, fall back to Wikidata order
-    const finalList = top5.length >= 2
-      ? top5
-      : withListeners.slice(0, 5);
-
-    // 4. Enrich with Deezer images + top track preview
-    const enriched = await Promise.all(
-      finalList.map(async ({ name, listeners, genres, lastfmUrl }) => {
-        const [topTrackData, deezerArtist] = await Promise.allSettled([
-          lfmGet<{ toptracks: { track: { name: string }[] } }>({
-            method: "artist.gettoptracks",
-            artist: name,
-            autocorrect: 1,
-            limit: 1,
-          }),
-          findArtistOnDeezer(name),
-        ]);
-
-        const deezerArt = deezerArtist.status === "fulfilled" ? deezerArtist.value : null;
-
-        let topTrack: SceneArtist["topTrack"] = null;
-        if (topTrackData.status === "fulfilled") {
-          const track = topTrackData.value.toptracks?.track?.[0];
-          if (track) {
-            const deezerTrack = await findTrackOnDeezer(track.name, name);
-            topTrack = deezerTrack
-              ? {
-                  name: track.name,
-                  albumImageUrl: deezerTrack.albumImageUrl,
-                  previewUrl: deezerTrack.previewUrl,
-                  deezerUrl: deezerTrack.deezerUrl,
-                  durationMs: deezerTrack.durationMs,
-                }
-              : { name: track.name, albumImageUrl: "", previewUrl: "", deezerUrl: "", durationMs: 0 };
-          }
-        }
-
-        return {
-          name,
-          imageUrl: deezerArt?.imageUrl ?? "",
-          listeners,
-          genres,
-          lastfmUrl,
-          deezerUrl: deezerArt?.deezerUrl ?? "",
-          topTrack,
-        } satisfies SceneArtist;
-      })
-    );
-
-    await cacheSet(cacheKey, enriched, CACHE_TTL);
-    return NextResponse.json({ artists: enriched }, { headers: { "X-Cache": "MISS" } });
+    const ttl = usedGroqCache ? GROQ_CACHE_TTL : CACHE_TTL;
+    await cacheSet(cacheKey, artists, ttl);
+    return NextResponse.json({ artists }, { headers: { "X-Cache": "MISS" } });
   } catch (err) {
     console.error(`[scene/${countryCode}]`, err);
     return NextResponse.json({ error: "Failed" }, { status: 502 });

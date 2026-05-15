@@ -4,50 +4,8 @@ import { getCountryTopArtists, getCountryTopTracks } from "@/lib/lastfm";
 import { findTrackOnDeezer, findArtistOnDeezer } from "@/lib/deezer";
 import { getCountryInfo } from "@/lib/playlists";
 import { getArtistsFromGroq } from "@/lib/groq";
+import { GROQ_COUNTRY_NAMES } from "@/lib/countries";
 import type { CountryData, Artist, Track } from "@/types";
-
-// English names for countries NOT in COUNTRY_MAP (Last.fm has no data for these)
-// Used to query Groq AI for artist recommendations
-const GROQ_COUNTRY_NAMES: Record<string, string> = {
-  AF: "Afghanistan",      AL: "Albania",          DZ: "Algeria",
-  AD: "Andorra",          AO: "Angola",           AZ: "Azerbaijan",
-  BH: "Bahrain",          BD: "Bangladesh",       BY: "Belarus",
-  BZ: "Belize",           BJ: "Benin",            BT: "Bhutan",
-  BO: "Bolivia",          BA: "Bosnia and Herzegovina",
-  BW: "Botswana",         BN: "Brunei",           BF: "Burkina Faso",
-  BI: "Burundi",          KH: "Cambodia",         CM: "Cameroon",
-  CF: "Central African Republic",  TD: "Chad",    CN: "China",
-  CG: "Republic of the Congo",     CD: "Democratic Republic of the Congo",
-  CR: "Costa Rica",       CI: "Côte d'Ivoire",    CU: "Cuba",
-  CY: "Cyprus",           DJ: "Djibouti",         DO: "Dominican Republic",
-  SV: "El Salvador",      GQ: "Equatorial Guinea",ER: "Eritrea",
-  ET: "Ethiopia",         FJ: "Fiji",             GA: "Gabon",
-  GM: "Gambia",           GE: "Georgia",          GH: "Ghana",
-  GT: "Guatemala",        GN: "Guinea",           GW: "Guinea-Bissau",
-  HT: "Haiti",            HN: "Honduras",         IS: "Iceland",
-  IQ: "Iraq",             IR: "Iran",             JM: "Jamaica",
-  JO: "Jordan",           KZ: "Kazakhstan",       KE: "Kenya",
-  KW: "Kuwait",           KG: "Kyrgyzstan",       LA: "Laos",
-  LB: "Lebanon",          LS: "Lesotho",          LR: "Liberia",
-  LY: "Libya",            LI: "Liechtenstein",    LU: "Luxembourg",
-  MG: "Madagascar",       MW: "Malawi",           MV: "Maldives",
-  ML: "Mali",             MT: "Malta",            MR: "Mauritania",
-  MU: "Mauritius",        MD: "Moldova",          MC: "Monaco",
-  MN: "Mongolia",         ME: "Montenegro",       MA: "Morocco",
-  MZ: "Mozambique",       MM: "Myanmar",          NA: "Namibia",
-  NP: "Nepal",            NI: "Nicaragua",        NE: "Niger",
-  MK: "North Macedonia",  OM: "Oman",             PA: "Panama",
-  PG: "Papua New Guinea", PY: "Paraguay",         QA: "Qatar",
-  RS: "Serbia",           SN: "Senegal",          SL: "Sierra Leone",
-  SK: "Slovakia",         SI: "Slovenia",         SO: "Somalia",
-  SS: "South Sudan",      LK: "Sri Lanka",        SD: "Sudan",
-  SZ: "Eswatini",         SY: "Syria",            TJ: "Tajikistan",
-  TZ: "Tanzania",         TL: "Timor-Leste",      TG: "Togo",
-  TT: "Trinidad and Tobago",       TN: "Tunisia", TM: "Turkmenistan",
-  UG: "Uganda",           UY: "Uruguay",          UZ: "Uzbekistan",
-  YE: "Yemen",            ZM: "Zambia",           ZW: "Zimbabwe",
-  AE: "United Arab Emirates",
-};
 
 const LASTFM_TTL = 60 * 60 * 6;   // 6 h
 const GROQ_TTL   = 60 * 60 * 24;  // 24 h
