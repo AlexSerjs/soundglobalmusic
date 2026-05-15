@@ -171,6 +171,17 @@ export default function AdminPage() {
   const [token, setToken]               = useState<string | null>(null);
   const [authed, setAuthed]             = useState(false);
 
+  // The global CSS sets overflow:hidden on body (for the map page).
+  // Override it here so the admin page can scroll normally.
+  useEffect(() => {
+    document.documentElement.style.overflow = "auto";
+    document.body.style.overflow = "auto";
+    return () => {
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+    };
+  }, []);
+
   const [countryCode, setCountryCode]   = useState("");
   const [countryName, setCountryName]   = useState("");
   const [countrySearch, setCountrySearch] = useState("");
