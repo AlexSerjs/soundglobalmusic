@@ -13,7 +13,10 @@ const ALL_COUNTRIES = [
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ExtractedTrack  { rank: number; title: string; artist: string; }
 interface ExtractedArtist { name: string; genre: string; }
-interface ExtractedScene  { name: string; topSong: string; }
+interface ExtractedScene  {
+  name: string; topSong: string;
+  albumImageUrl?: string; previewUrl?: string; deezerUrl?: string;
+}
 
 type SectionKey = "tracks" | "artists" | "scene";
 
@@ -233,7 +236,8 @@ export default function AdminPage() {
 
   const tracksFileRef  = useRef<HTMLInputElement>(null);
   const artistsFileRef = useRef<HTMLInputElement>(null);
-  const sceneFileRef   = useRef<HTMLInputElement>(null);
+  // Scene file ref is inside SceneManager — we store the selected file here so runExtraction can read it
+  const sceneSelectedFileRef = useRef<File | null>(null);
 
   const showMsg = (text: string, type: "ok" | "err" | "info" = "info") => {
     setMsg({ text, type });
@@ -318,6 +322,7 @@ export default function AdminPage() {
 
   // ── Image selected → show summary ─────────────────────────────────────────
   const handleFileChange = (section: SectionKey, file: File) => {
+    if (section === "scene") sceneSelectedFileRef.current = file;
     const preview = URL.createObjectURL(file);
     setPending({ section, preview, fileName: file.name });
   };
@@ -330,11 +335,10 @@ export default function AdminPage() {
     setExtractingSection(section);
     showMsg("Leyendo imagen con IA…", "info");
 
-    // Get the file from the correct input
-    const fileInput = section === "tracks" ? tracksFileRef.current
-                    : section === "artists" ? artistsFileRef.current
-                    : sceneFileRef.current;
-    const file = fileInput?.files?.[0];
+    // Get the file from the correct input (scene uses a stored ref since its input is in SceneManager)
+    const file = section === "scene"
+      ? sceneSelectedFileRef.current
+      : (section === "tracks" ? tracksFileRef.current : artistsFileRef.current)?.files?.[0];
     if (!file) { setExtractingSection(null); return; }
 
     const form = new FormData();
@@ -369,14 +373,14 @@ export default function AdminPage() {
         setArtists(extracted);
         showMsg(`✅ ${extracted.length} artistas extraídos. Revisa y guarda.`, "ok");
       } else {
-        // scene
+        // scene — AI gives us names+songs, no Deezer data yet (user verifies individually)
         const extracted: ExtractedScene[] = (json.data?.artists ?? []).map(
           (a: { name: string; topSong?: string }) => ({
             name: a.name, topSong: a.topSong ?? "",
           })
         );
         setScene(extracted);
-        showMsg(`✅ ${extracted.length} artistas de escena local extraídos. Revisa y guarda.`, "ok");
+        showMsg(`✅ ${extracted.length} artistas extraídos. Verifica cada uno en Deezer antes de guardar.`, "ok");
       }
     } catch (e) {
       showMsg(`Error: ${e}`, "err");
@@ -731,31 +735,20 @@ export default function AdminPage() {
               </p>
             </div>
 
-            <Section
-              title="Escena Local"
-              icon="🎸"
-              description="Sube una captura con artistas locales del país. Extrae nombre + canción representativa."
-              fileRef={sceneFileRef}
-              onFileChange={(f) => handleFileChange("scene", f)}
-              extracting={extractingSection === "scene"}
+            <SceneManager
+              scene={scene}
+              onChange={setScene}
+              token={token!}
+              showMsg={showMsg}
               autoState={autoScene}
               onToggle={() => toggleSection("scene")}
               toggleDisabled={saving}
-            >
-              {scene.length > 0 && (
-                <EditableSceneTable scene={scene} onChange={setScene} />
-              )}
-            </Section>
-
-            {scene.length > 0 && (
-              <button
-                onClick={saveScene}
-                disabled={savingScene}
-                className="w-full py-3 bg-purple-500/80 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors"
-              >
-                {savingScene ? "Guardando escena local en Deezer…" : `🎸 Guardar Escena Local para ${countryName}`}
-              </button>
-            )}
+              extracting={extractingSection === "scene"}
+              onFileChange={(f) => handleFileChange("scene", f)}
+              onSave={saveScene}
+              saving={savingScene}
+              countryName={countryName}
+            />
           </>
         )}
 
@@ -861,42 +854,188 @@ function EditableTrackTable({
   );
 }
 
-// ── Editable scene table ──────────────────────────────────────────────────────
-function EditableSceneTable({
-  scene, onChange,
+// ── Scene Manager — verify-first flow (like IntroPlaylistManager) ─────────────
+function SceneManager({
+  scene, onChange, token, showMsg,
+  autoState, onToggle, toggleDisabled,
+  extracting, onFileChange, onSave, saving, countryName,
 }: {
-  scene: { name: string; topSong: string }[];
-  onChange: (s: { name: string; topSong: string }[]) => void;
+  scene: ExtractedScene[];
+  onChange: (s: ExtractedScene[]) => void;
+  token: string;
+  showMsg: (text: string, type: "ok" | "err" | "info") => void;
+  autoState: boolean;
+  onToggle: () => void;
+  toggleDisabled?: boolean;
+  extracting: boolean;
+  onFileChange: (f: File) => void;
+  onSave: () => void;
+  saving: boolean;
+  countryName: string;
 }) {
-  const update = (i: number, field: "name" | "topSong", val: string) => {
-    const next = [...scene];
-    next[i] = { ...next[i], [field]: val };
-    onChange(next);
+  const fileRef      = useRef<HTMLInputElement>(null);
+  const previewRef   = useRef<HTMLAudioElement | null>(null);
+  const [newArtist, setNewArtist] = useState("");
+  const [newSong,   setNewSong]   = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verified,  setVerified]  = useState<{
+    title: string; artist: string; albumImageUrl: string; preview: string; deezerUrl: string;
+  } | null>(null);
+
+  const verify = async () => {
+    if (!newArtist.trim() && !newSong.trim()) return;
+    setVerifying(true);
+    setVerified(null);
+    try {
+      const params = new URLSearchParams({ title: newSong, artist: newArtist });
+      const res  = await fetch(`/api/admin/verify-track?${params}`, { headers: { "x-admin-token": token } });
+      const data = await res.json();
+      if (!res.ok || !data.found) {
+        showMsg("❌ No encontrado en Deezer o sin preview disponible.", "err");
+      } else {
+        setVerified(data);
+        if (previewRef.current) { previewRef.current.pause(); previewRef.current = null; }
+        if (data.preview) {
+          const a = new Audio(data.preview);
+          a.volume = 0.5;
+          a.play().catch(() => {});
+          previewRef.current = a;
+          setTimeout(() => { a.pause(); }, 5000);
+        }
+      }
+    } catch { showMsg("Error verificando", "err"); }
+    finally { setVerifying(false); }
   };
-  const remove = (i: number) => onChange(scene.filter((_, j) => j !== i));
-  const add    = () => onChange([...scene, { name: "", topSong: "" }]);
+
+  const addArtist = () => {
+    if (!verified) return;
+    onChange([...scene, {
+      name:         verified.artist,
+      topSong:      verified.title,
+      albumImageUrl: verified.albumImageUrl,
+      previewUrl:   verified.preview,
+      deezerUrl:    verified.deezerUrl,
+    }]);
+    setVerified(null);
+    setNewArtist("");
+    setNewSong("");
+  };
+
+  const remove   = (i: number) => onChange(scene.filter((_, j) => j !== i));
+  const moveUp   = (i: number) => { if (i === 0) return; const n = [...scene]; [n[i-1], n[i]] = [n[i], n[i-1]]; onChange(n); };
+  const moveDown = (i: number) => { if (i === scene.length-1) return; const n = [...scene]; [n[i], n[i+1]] = [n[i+1], n[i]]; onChange(n); };
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-[10px] text-gray-600 uppercase tracking-widest">{scene.length} artistas de escena local — edita si algo está mal</p>
-      {scene.map((a, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input
-            value={a.name}
-            onChange={(e) => update(i, "name", e.target.value)}
-            placeholder="Artista"
-            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-400/30 min-w-0"
-          />
-          <input
-            value={a.topSong}
-            onChange={(e) => update(i, "topSong", e.target.value)}
-            placeholder="Canción representativa"
-            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-purple-400/30 min-w-0"
-          />
-          <button onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors">✕</button>
+    <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-white font-semibold text-sm">🎸 Escena Local</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Verifica cada artista en Deezer antes de añadir. O sube captura para que la IA los detecte.</p>
         </div>
-      ))}
-      <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir artista</button>
+        <div className="flex items-center gap-2">
+          <MiniToggle active={autoState} onToggle={onToggle} disabled={toggleDisabled} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={extracting}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+          >
+            📸 Subir captura
+          </button>
+        </div>
+      </div>
+      <input
+        type="file" accept="image/*" ref={fileRef} className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); e.target.value = ""; }}
+      />
+
+      {extracting && (
+        <div className="flex items-center gap-2 text-purple-400 text-xs">
+          <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin" />
+          Extrayendo artistas con IA… verifica cada uno antes de guardar.
+        </div>
+      )}
+
+      {/* Verify form */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input
+            value={newArtist}
+            onChange={(e) => { setNewArtist(e.target.value); setVerified(null); }}
+            onKeyDown={(e) => e.key === "Enter" && verify()}
+            placeholder="Artista"
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-400/50 min-w-0"
+          />
+          <input
+            value={newSong}
+            onChange={(e) => { setNewSong(e.target.value); setVerified(null); }}
+            onKeyDown={(e) => e.key === "Enter" && verify()}
+            placeholder="Canción representativa"
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-400/50 min-w-0"
+          />
+          <button
+            onClick={verify}
+            disabled={verifying || (!newArtist.trim() && !newSong.trim())}
+            className="flex-shrink-0 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+          >
+            {verifying ? "…" : "🔍 Verificar"}
+          </button>
+        </div>
+
+        {verified && (
+          <div className="flex items-center gap-3 bg-purple-500/10 border border-purple-500/20 rounded-xl px-3 py-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {verified.albumImageUrl && <img src={verified.albumImageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs font-semibold truncate">{verified.title}</p>
+              <p className="text-purple-400 text-[11px]">{verified.artist} · ✅ Encontrado en Deezer · 🎵 reproduciendo 5s</p>
+            </div>
+            <button
+              onClick={addArtist}
+              className="flex-shrink-0 px-3 py-1.5 bg-purple-500 hover:bg-purple-400 text-white text-xs font-bold rounded-lg transition-colors"
+            >
+              + Añadir
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Artist list */}
+      {scene.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest">{scene.length} artistas · verifica todos antes de guardar</p>
+          {scene.map((a, i) => (
+            <div key={i} className="flex items-center gap-2 bg-white/[0.03] rounded-xl px-2 py-1.5">
+              {a.albumImageUrl
+                ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={a.albumImageUrl} alt="" className="w-7 h-7 rounded object-cover flex-shrink-0" />
+                : <div className="w-7 h-7 rounded bg-purple-500/20 flex items-center justify-center flex-shrink-0"><span className="text-[10px]">🎸</span></div>
+              }
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs truncate">{a.name}</p>
+                <p className="text-gray-500 text-[10px] truncate">{a.topSong || <span className="text-amber-500/60">sin canción verificada</span>}</p>
+              </div>
+              {/* Show verified badge */}
+              {a.albumImageUrl
+                ? <span className="text-green-500/60 text-[10px] flex-shrink-0">✓</span>
+                : <span className="text-amber-500/60 text-[10px] flex-shrink-0">?</span>
+              }
+              <button onClick={() => moveUp(i)}   className="text-gray-600 hover:text-gray-300 text-xs px-0.5">↑</button>
+              <button onClick={() => moveDown(i)} className="text-gray-600 hover:text-gray-300 text-xs px-0.5">↓</button>
+              <button onClick={() => remove(i)}   className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {scene.length > 0 && (
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="w-full py-2.5 bg-purple-500/80 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors"
+        >
+          {saving ? "Guardando en Deezer…" : `🎸 Guardar Escena Local de ${countryName} (${scene.length} artistas)`}
+        </button>
+      )}
     </div>
   );
 }
