@@ -158,6 +158,14 @@ export async function GET(
   const { code } = await params;
   const countryCode = code.toUpperCase();
 
+  // ── Manual override (admin panel) — highest priority ─────────────────────
+  const sceneOverride = await cacheGet(`override:scene:v1:${countryCode}`);
+  if (sceneOverride) {
+    return NextResponse.json(sceneOverride, {
+      headers: { "X-Cache": "OVERRIDE", "Cache-Control": "no-store" },
+    });
+  }
+
   // Accept both Last.fm countries AND Groq countries (previously blocked Groq)
   const isKnown = getCountryInfo(countryCode) !== null || countryCode in GROQ_COUNTRY_NAMES;
   if (!isKnown) {

@@ -13,8 +13,9 @@ const ALL_COUNTRIES = [
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ExtractedTrack  { rank: number; title: string; artist: string; }
 interface ExtractedArtist { name: string; genre: string; }
+interface ExtractedScene  { name: string; topSong: string; }
 
-type Section = "tracks" | "artists";
+type Section = "tracks" | "artists" | "scene";
 
 interface PendingExtract {
   section: Section;
@@ -33,11 +34,13 @@ interface OverrideInfo {
 const SECTION_LABELS: Record<Section, string> = {
   tracks:  "Lo más popular",
   artists: "Top Artistas",
+  scene:   "Escena Local",
 };
 
 const SECTION_ICONS: Record<Section, string> = {
   tracks:  "🎵",
   artists: "🎤",
+  scene:   "🎸",
 };
 
 // ── Auth gate ──────────────────────────────────────────────────────────────────
@@ -101,12 +104,20 @@ function SummaryModal({
           `💾 Guardar como override permanente para ${countryName}`,
           "✅ El tab 'Lo más popular' mostrará estos datos hasta que lo cambies",
         ]
-      : [
+      : pending.section === "artists"
+      ? [
           "📸 Leer la captura con Llama 4 Vision (Groq)",
           "🎤 Extraer: nombre del artista y género musical",
           "🔍 Buscar cada artista en Deezer para obtener foto y enlace",
           `💾 Guardar como override permanente para ${countryName}`,
           "✅ El tab 'Top Artistas' mostrará estos datos hasta que lo cambies",
+        ]
+      : [
+          "📸 Leer la captura con Llama 4 Vision (Groq)",
+          "🎸 Extraer: artistas locales y su canción más representativa",
+          "🔍 Buscar cada artista y canción en Deezer para foto y preview",
+          `💾 Guardar como override permanente de Escena Local para ${countryName}`,
+          "✅ El tab 'Escena Local' mostrará estos datos hasta que los cambies",
         ];
 
   return (
@@ -170,14 +181,17 @@ export default function AdminPage() {
 
   const [tracks, setTracks]     = useState<ExtractedTrack[]>([]);
   const [artists, setArtists]   = useState<ExtractedArtist[]>([]);
+  const [scene, setScene]       = useState<ExtractedScene[]>([]);
 
   const [pending, setPending]   = useState<PendingExtract | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [savingScene, setSavingScene] = useState(false);
   const [msg, setMsg]           = useState<{ text: string; type: "ok" | "err" | "info" } | null>(null);
 
   const tracksFileRef  = useRef<HTMLInputElement>(null);
   const artistsFileRef = useRef<HTMLInputElement>(null);
+  const sceneFileRef   = useRef<HTMLInputElement>(null);
 
   const showMsg = (text: string, type: "ok" | "err" | "info" = "info") => {
     setMsg({ text, type });
@@ -229,6 +243,23 @@ export default function AdminPage() {
       setTracks([]);
       setArtists([]);
     }
+
+    // Load scene override separately (stored in its own key)
+    const sceneRes = await fetch(`/api/admin/scene/${code}`, {
+      headers: { "x-admin-token": token },
+    });
+    if (sceneRes.ok) {
+      const { override: sceneOverride } = await sceneRes.json();
+      if (sceneOverride?.artists) {
+        setScene(
+          sceneOverride.artists.map((a: { name: string; topSong: string }) => ({
+            name: a.name, topSong: a.topSong ?? "",
+          }))
+        );
+      } else {
+        setScene([]);
+      }
+    }
   }, [token]);
 
   useEffect(() => {
@@ -250,7 +281,9 @@ export default function AdminPage() {
     showMsg("Leyendo imagen con IA…", "info");
 
     // Get the file from the correct input
-    const fileInput = section === "tracks" ? tracksFileRef.current : artistsFileRef.current;
+    const fileInput = section === "tracks" ? tracksFileRef.current
+                    : section === "artists" ? artistsFileRef.current
+                    : sceneFileRef.current;
     const file = fileInput?.files?.[0];
     if (!file) { setExtracting(false); return; }
 
@@ -277,7 +310,7 @@ export default function AdminPage() {
         );
         setTracks(extracted);
         showMsg(`✅ ${extracted.length} canciones extraídas. Revisa y guarda.`, "ok");
-      } else {
+      } else if (section === "artists") {
         const extracted: ExtractedArtist[] = (json.data?.artists ?? []).map(
           (a: { name: string; genre?: string }) => ({
             name: a.name, genre: a.genre ?? "",
@@ -285,6 +318,15 @@ export default function AdminPage() {
         );
         setArtists(extracted);
         showMsg(`✅ ${extracted.length} artistas extraídos. Revisa y guarda.`, "ok");
+      } else {
+        // scene
+        const extracted: ExtractedScene[] = (json.data?.artists ?? []).map(
+          (a: { name: string; topSong?: string }) => ({
+            name: a.name, topSong: a.topSong ?? "",
+          })
+        );
+        setScene(extracted);
+        showMsg(`✅ ${extracted.length} artistas de escena local extraídos. Revisa y guarda.`, "ok");
       }
     } catch (e) {
       showMsg(`Error: ${e}`, "err");
@@ -321,6 +363,30 @@ export default function AdminPage() {
       showMsg(`Error al guardar: ${e}`, "err");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── Save scene override ────────────────────────────────────────────────────
+  const saveScene = async () => {
+    if (!token || !countryCode || scene.length === 0) return;
+    setSavingScene(true);
+    showMsg("Buscando artistas en Deezer y guardando escena local…", "info");
+    try {
+      const res = await fetch(`/api/admin/scene/${countryCode}`, {
+        method: "POST",
+        headers: { "x-admin-token": token, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          countryName,
+          artists: scene.map((a) => ({ name: a.name, topSong: a.topSong })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      showMsg("✅ Escena local guardada permanentemente.", "ok");
+    } catch (e) {
+      showMsg(`Error al guardar escena: ${e}`, "err");
+    } finally {
+      setSavingScene(false);
     }
   };
 
@@ -375,14 +441,19 @@ export default function AdminPage() {
   // ── Clear override ─────────────────────────────────────────────────────────
   const clearOverride = async () => {
     if (!token || !countryCode || !confirm(`¿Eliminar override de ${countryName}?`)) return;
-    await fetch(`/api/admin/override/${countryCode}`, {
-      method: "DELETE",
-      headers: { "x-admin-token": token },
-    });
+    await Promise.all([
+      fetch(`/api/admin/override/${countryCode}`, {
+        method: "DELETE", headers: { "x-admin-token": token },
+      }),
+      fetch(`/api/admin/scene/${countryCode}`, {
+        method: "DELETE", headers: { "x-admin-token": token },
+      }),
+    ]);
     setAutoUpdate(true);
     setOverrideInfo({ exists: false });
     setTracks([]);
     setArtists([]);
+    setScene([]);
     showMsg("Override eliminado. Vuelve a Last.fm/Groq.", "ok");
   };
 
@@ -544,14 +615,44 @@ export default function AdminPage() {
               )}
             </Section>
 
-            {/* Save button */}
+            {/* Save tracks + artists */}
             {(tracks.length > 0 || artists.length > 0) && (
               <button
                 onClick={saveOverride}
                 disabled={saving}
                 className="w-full py-3 bg-[#38bdf8] hover:bg-[#0ea5e9] disabled:opacity-50 text-[#0d1b2a] font-bold rounded-xl text-sm transition-colors"
               >
-                {saving ? "Guardando y buscando en Deezer…" : `💾 Guardar override para ${countryName}`}
+                {saving ? "Guardando y buscando en Deezer…" : `💾 Guardar Lo más popular + Top Artistas para ${countryName}`}
+              </button>
+            )}
+
+            {/* ── Escena Local ────────────────────────────────────────────── */}
+            <div className="border-t border-white/5 pt-2">
+              <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-3 px-1">
+                Sección independiente · se guarda por separado
+              </p>
+            </div>
+
+            <Section
+              title="Escena Local"
+              icon="🎸"
+              description="Sube una captura con artistas locales del país. Extrae nombre + canción representativa."
+              fileRef={sceneFileRef}
+              onFileChange={(f) => handleFileChange("scene", f)}
+              extracting={extracting}
+            >
+              {scene.length > 0 && (
+                <EditableSceneTable scene={scene} onChange={setScene} />
+              )}
+            </Section>
+
+            {scene.length > 0 && (
+              <button
+                onClick={saveScene}
+                disabled={savingScene}
+                className="w-full py-3 bg-purple-500/80 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors"
+              >
+                {savingScene ? "Guardando escena local en Deezer…" : `🎸 Guardar Escena Local para ${countryName}`}
               </button>
             )}
           </>
@@ -641,6 +742,46 @@ function EditableTrackTable({
         </div>
       ))}
       <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir fila</button>
+    </div>
+  );
+}
+
+// ── Editable scene table ──────────────────────────────────────────────────────
+function EditableSceneTable({
+  scene, onChange,
+}: {
+  scene: { name: string; topSong: string }[];
+  onChange: (s: { name: string; topSong: string }[]) => void;
+}) {
+  const update = (i: number, field: "name" | "topSong", val: string) => {
+    const next = [...scene];
+    next[i] = { ...next[i], [field]: val };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(scene.filter((_, j) => j !== i));
+  const add    = () => onChange([...scene, { name: "", topSong: "" }]);
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] text-gray-600 uppercase tracking-widest">{scene.length} artistas de escena local — edita si algo está mal</p>
+      {scene.map((a, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            value={a.name}
+            onChange={(e) => update(i, "name", e.target.value)}
+            placeholder="Artista"
+            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-400/30 min-w-0"
+          />
+          <input
+            value={a.topSong}
+            onChange={(e) => update(i, "topSong", e.target.value)}
+            placeholder="Canción representativa"
+            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-purple-400/30 min-w-0"
+          />
+          <button onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors">✕</button>
+        </div>
+      ))}
+      <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir artista</button>
     </div>
   );
 }
