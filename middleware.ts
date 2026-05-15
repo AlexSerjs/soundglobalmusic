@@ -68,8 +68,8 @@ function getClientIP(req: NextRequest): string {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only guard /admin routes
-  if (!pathname.startsWith("/admin")) return NextResponse.next();
+  // Only guard /admin_ico routes
+  if (!pathname.startsWith("/admin_ico")) return NextResponse.next();
 
   const ip = getClientIP(req);
 
@@ -86,5 +86,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin", "/admin/:path*"],
+  matcher: ["/admin_ico", "/admin_ico/:path*"],
 };
