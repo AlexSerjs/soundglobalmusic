@@ -296,7 +296,7 @@ export default function AdminPage() {
                     : section === "artists" ? artistsFileRef.current
                     : sceneFileRef.current;
     const file = fileInput?.files?.[0];
-    if (!file) { setExtracting(false); return; }
+    if (!file) { setExtractingSection(null); return; }
 
     const form = new FormData();
     form.append("image", file);
