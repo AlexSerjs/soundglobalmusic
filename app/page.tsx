@@ -115,12 +115,17 @@ export default function Home() {
 
         setAudioReady(true);
 
-        // Try autoplay
+        // Muted-autoplay trick: browsers always allow muted autoplay.
+        // Start muted → play() succeeds → unmute → audio context is active,
+        // volume kicks in. Works on Chrome/Firefox/Edge/Android.
+        // iOS Safari is still strict — falls back to first-touch below.
         try {
+          audio.muted = true;
           await audio.play();
+          audio.muted = false;   // unmute now that context is running
           scheduleAutoStop();
         } catch {
-          // Blocked — wait for first interaction
+          // Truly blocked (iOS) — wait for first interaction
         }
       } catch {
         // silent
