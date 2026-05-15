@@ -3,12 +3,24 @@ import { cacheGet, cacheSet } from "@/lib/redis";
 import { getCountryTopArtists, getCountryTopTracks } from "@/lib/lastfm";
 import { findTrackOnDeezer, findArtistOnDeezer } from "@/lib/deezer";
 import { getCountryInfo } from "@/lib/playlists";
-import { getArtistsFromGroq } from "@/lib/groq";
+import { getArtistsFromGroq, getLocalTracksFromGroq } from "@/lib/groq";
 import { GROQ_COUNTRY_NAMES } from "@/lib/countries";
 import type { CountryData, Artist, Track } from "@/types";
 
 const LASTFM_TTL = 60 * 60 * 6;   // 6 h
 const GROQ_TTL   = 60 * 60 * 24;  // 24 h
+
+// Returns true when Last.fm top-track data looks skewed:
+// same artist dominates (3+ songs) or too few unique artists (<4 of 10)
+function tracksLookSkewed(tracks: { artistName: string }[]): boolean {
+  if (tracks.length < 5) return true;
+  const counts: Record<string, number> = {};
+  for (const t of tracks) {
+    counts[t.artistName] = (counts[t.artistName] ?? 0) + 1;
+    if (counts[t.artistName] >= 3) return true;   // one artist dominates
+  }
+  return Object.keys(counts).length < 4;           // too few unique artists
+}
 
 export async function GET(
   _req: NextRequest,
@@ -34,10 +46,9 @@ export async function GET(
         getCountryTopTracks(info.lfmName, 10),
       ]);
 
-      const [deezerTracks, deezerArtists] = await Promise.all([
-        Promise.all(lfmTracks.map((t) => findTrackOnDeezer(t.name, t.artistName))),
-        Promise.all(lfmArtists.map((a) => findArtistOnDeezer(a.name))),
-      ]);
+      const deezerArtists = await Promise.all(
+        lfmArtists.map((a) => findArtistOnDeezer(a.name))
+      );
 
       const topArtists: Artist[] = lfmArtists.map((a, i) => ({
         id: encodeURIComponent(a.name),
@@ -49,18 +60,48 @@ export async function GET(
         deezerUrl: deezerArtists[i]?.deezerUrl ?? "",
       }));
 
-      const topTracks: Track[] = lfmTracks.map((t, i) => ({
-        id: `${countryCode}-${i}`,
-        name: t.name,
-        artistName: t.artistName,
-        albumImageUrl: deezerTracks[i]?.albumImageUrl || t.imageUrl,
-        previewUrl: deezerTracks[i]?.previewUrl ?? "",
-        durationMs: deezerTracks[i]?.durationMs || t.durationMs,
-        listeners: t.listeners,
-        lastfmUrl: t.url,
-        deezerUrl: deezerTracks[i]?.deezerUrl ?? "",
-        rank: t.rank,
-      }));
+      // ── Top tracks: Last.fm if data looks good, Groq if skewed (e.g. BTS x8) ──
+      let topTracks: Track[];
+      let trackSource: "lastfm" | "groq" = "lastfm";
+
+      if (!tracksLookSkewed(lfmTracks)) {
+        // Last.fm data is diverse → use it
+        const deezerTracks = await Promise.all(
+          lfmTracks.map((t) => findTrackOnDeezer(t.name, t.artistName))
+        );
+        topTracks = lfmTracks.map((t, i) => ({
+          id: `${countryCode}-${i}`,
+          name: t.name,
+          artistName: t.artistName,
+          albumImageUrl: deezerTracks[i]?.albumImageUrl || t.imageUrl,
+          previewUrl: deezerTracks[i]?.previewUrl ?? "",
+          durationMs: deezerTracks[i]?.durationMs || t.durationMs,
+          listeners: t.listeners,
+          lastfmUrl: t.url,
+          deezerUrl: deezerTracks[i]?.deezerUrl ?? "",
+          rank: t.rank,
+        }));
+      } else {
+        // Last.fm data is skewed → ask Groq for local tracks
+        console.log(`[country/${countryCode}] Last.fm tracks skewed → using Groq`);
+        trackSource = "groq";
+        const groqTracks = await getLocalTracksFromGroq(info.name);
+        const deezerTracks = await Promise.all(
+          groqTracks.map((t) => findTrackOnDeezer(t.title, t.artist))
+        );
+        topTracks = groqTracks.map((t, i) => ({
+          id: `${countryCode}-groq-${i}`,
+          name: t.title,
+          artistName: t.artist,
+          albumImageUrl: deezerTracks[i]?.albumImageUrl ?? "",
+          previewUrl: deezerTracks[i]?.previewUrl ?? "",
+          durationMs: deezerTracks[i]?.durationMs ?? 0,
+          listeners: 0,
+          lastfmUrl: "",
+          deezerUrl: deezerTracks[i]?.deezerUrl ?? "",
+          rank: i + 1,
+        }));
+      }
 
       const data: CountryData = {
         countryCode,
@@ -68,7 +109,7 @@ export async function GET(
         topArtists,
         topTracks,
         cachedAt: Date.now(),
-        source: "lastfm",
+        source: trackSource === "groq" ? "groq" : "lastfm",
       };
 
       await cacheSet(cacheKey, data, LASTFM_TTL);

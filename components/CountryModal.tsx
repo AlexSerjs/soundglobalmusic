@@ -152,8 +152,11 @@ export default function CountryModal({ countryCode, countryName, onClose }: Coun
               <p className="text-center text-gray-500 py-10 text-sm">{error}</p>
             ) : countryData ? (
               <div className="space-y-1">
-                <p className="text-xs text-gray-600 uppercase tracking-wider mb-3">
-                  Top 10 canciones · Preview via Deezer
+                <p className="text-xs text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  {countryData.source === "groq"
+                    ? <><span>Canciones locales</span><span className="text-cyan-400/70 normal-case tracking-normal">🤖 vía Groq AI</span></>
+                    : "Top 10 canciones · Preview via Deezer"
+                  }
                 </p>
                 {countryData.topTracks.map((track) => (
                   <TrackRow
