@@ -1,0 +1,686 @@
+"use client";
+
+import { useState, useRef, useCallback, useEffect } from "react";
+import { COUNTRY_MAP } from "@/lib/playlists";
+import { GROQ_COUNTRY_NAMES } from "@/lib/countries";
+
+// ── All countries merged ──────────────────────────────────────────────────────
+const ALL_COUNTRIES = [
+  ...Object.entries(COUNTRY_MAP).map(([code, info]) => ({ code, name: info.name })),
+  ...Object.entries(GROQ_COUNTRY_NAMES).map(([code, name]) => ({ code, name })),
+].sort((a, b) => a.name.localeCompare(b.name));
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface ExtractedTrack  { rank: number; title: string; artist: string; }
+interface ExtractedArtist { name: string; genre: string; }
+
+type Section = "tracks" | "artists";
+
+interface PendingExtract {
+  section: Section;
+  preview: string;   // object URL for image preview
+  fileName: string;
+}
+
+interface OverrideInfo {
+  exists: boolean;
+  source?: string;
+  cachedAt?: number;
+  trackCount?: number;
+  artistCount?: number;
+}
+
+const SECTION_LABELS: Record<Section, string> = {
+  tracks:  "Lo más popular",
+  artists: "Top Artistas",
+};
+
+const SECTION_ICONS: Record<Section, string> = {
+  tracks:  "🎵",
+  artists: "🎤",
+};
+
+// ── Auth gate ──────────────────────────────────────────────────────────────────
+function AuthGate({ onAuth }: { onAuth: (pw: string) => void }) {
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState(false);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pw.trim()) return;
+    onAuth(pw.trim());
+    setErr(true); // will be reset if auth succeeds (parent replaces component)
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#0d1b2a" }}>
+      <form onSubmit={submit} className="bg-[#0a1628] border border-white/10 rounded-2xl p-8 w-80 flex flex-col gap-4 shadow-2xl">
+        <div className="text-center">
+          <span className="text-3xl">🔧</span>
+          <h1 className="text-white font-bold text-lg mt-2">SoundGlobal Admin</h1>
+          <p className="text-gray-500 text-xs mt-1">Panel de administración</p>
+        </div>
+        <input
+          type="password"
+          placeholder="Contraseña"
+          value={pw}
+          onChange={(e) => { setPw(e.target.value); setErr(false); }}
+          className="bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#38bdf8]/50 transition-colors"
+          autoFocus
+        />
+        {err && <p className="text-red-400 text-xs text-center">Contraseña incorrecta</p>}
+        <button
+          type="submit"
+          className="bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#0d1b2a] font-bold py-2.5 rounded-lg text-sm transition-colors"
+        >
+          Entrar
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Summary modal (before extraction) ────────────────────────────────────────
+function SummaryModal({
+  pending,
+  countryName,
+  onConfirm,
+  onCancel,
+}: {
+  pending: PendingExtract;
+  countryName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const steps =
+    pending.section === "tracks"
+      ? [
+          "📸 Leer la captura con Llama 4 Vision (Groq)",
+          "🎵 Extraer: posición, título y artista de cada canción visible",
+          "🔍 Buscar cada canción en Deezer para obtener preview de 30s y portada",
+          `💾 Guardar como override permanente para ${countryName}`,
+          "✅ El tab 'Lo más popular' mostrará estos datos hasta que lo cambies",
+        ]
+      : [
+          "📸 Leer la captura con Llama 4 Vision (Groq)",
+          "🎤 Extraer: nombre del artista y género musical",
+          "🔍 Buscar cada artista en Deezer para obtener foto y enlace",
+          `💾 Guardar como override permanente para ${countryName}`,
+          "✅ El tab 'Top Artistas' mostrará estos datos hasta que lo cambies",
+        ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-[#0e1f35] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+        <h2 className="text-white font-bold text-base mb-1">
+          {SECTION_ICONS[pending.section]} Extraer {SECTION_LABELS[pending.section]}
+        </h2>
+        <p className="text-gray-500 text-xs mb-4">{pending.fileName}</p>
+
+        {/* Image thumbnail */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={pending.preview}
+          alt="preview"
+          className="w-full h-36 object-cover rounded-lg mb-4 opacity-80"
+        />
+
+        {/* Steps */}
+        <p className="text-xs text-gray-400 uppercase tracking-widest mb-2">La IA hará esto en orden:</p>
+        <ol className="space-y-1.5 mb-5">
+          {steps.map((step, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+              <span className="text-[#38bdf8] font-bold text-xs mt-0.5 flex-shrink-0">{i + 1}.</span>
+              {step}
+            </li>
+          ))}
+        </ol>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-lg border border-white/10 text-gray-400 hover:text-white text-sm transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-lg bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#0d1b2a] font-bold text-sm transition-colors"
+          >
+            Proceder →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main admin panel ──────────────────────────────────────────────────────────
+export default function AdminPage() {
+  const [token, setToken]               = useState<string | null>(null);
+  const [authed, setAuthed]             = useState(false);
+
+  const [countryCode, setCountryCode]   = useState("");
+  const [countryName, setCountryName]   = useState("");
+  const [countrySearch, setCountrySearch] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const [overrideInfo, setOverrideInfo] = useState<OverrideInfo | null>(null);
+  const [autoUpdate, setAutoUpdate]     = useState(true);  // true = no override active
+
+  const [tracks, setTracks]     = useState<ExtractedTrack[]>([]);
+  const [artists, setArtists]   = useState<ExtractedArtist[]>([]);
+
+  const [pending, setPending]   = useState<PendingExtract | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState<{ text: string; type: "ok" | "err" | "info" } | null>(null);
+
+  const tracksFileRef  = useRef<HTMLInputElement>(null);
+  const artistsFileRef = useRef<HTMLInputElement>(null);
+
+  const showMsg = (text: string, type: "ok" | "err" | "info" = "info") => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg(null), 5000);
+  };
+
+  // ── Auth ───────────────────────────────────────────────────────────────────
+  const handleAuth = useCallback(async (pw: string) => {
+    // Test auth by calling the override endpoint
+    const res = await fetch("/api/admin/override/US", {
+      headers: { "x-admin-token": pw },
+    });
+    if (res.ok) {
+      setToken(pw);
+      setAuthed(true);
+    }
+  }, []);
+
+  // ── Load override info when country changes ────────────────────────────────
+  const loadOverride = useCallback(async (code: string) => {
+    if (!token || !code) return;
+    const res = await fetch(`/api/admin/override/${code}`, {
+      headers: { "x-admin-token": token },
+    });
+    const { override } = await res.json();
+    if (override) {
+      setOverrideInfo({
+        exists: true,
+        source: override.source,
+        cachedAt: override.cachedAt,
+        trackCount: override.topTracks?.length ?? 0,
+        artistCount: override.topArtists?.length ?? 0,
+      });
+      setAutoUpdate(false);
+      // Populate editable tables with saved data
+      setTracks(
+        (override.topTracks ?? []).map((t: { name: string; artistName: string }, i: number) => ({
+          rank: i + 1, title: t.name, artist: t.artistName,
+        }))
+      );
+      setArtists(
+        (override.topArtists ?? []).map((a: { name: string; genres: string[] }) => ({
+          name: a.name, genre: a.genres?.[0] ?? "",
+        }))
+      );
+    } else {
+      setOverrideInfo({ exists: false });
+      setAutoUpdate(true);
+      setTracks([]);
+      setArtists([]);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (countryCode) loadOverride(countryCode);
+  }, [countryCode, loadOverride]);
+
+  // ── Image selected → show summary ─────────────────────────────────────────
+  const handleFileChange = (section: Section, file: File) => {
+    const preview = URL.createObjectURL(file);
+    setPending({ section, preview, fileName: file.name });
+  };
+
+  // ── Confirm → run extraction ───────────────────────────────────────────────
+  const runExtraction = async () => {
+    if (!pending || !token) return;
+    const section = pending.section;
+    setPending(null);
+    setExtracting(true);
+    showMsg("Leyendo imagen con IA…", "info");
+
+    // Get the file from the correct input
+    const fileInput = section === "tracks" ? tracksFileRef.current : artistsFileRef.current;
+    const file = fileInput?.files?.[0];
+    if (!file) { setExtracting(false); return; }
+
+    const form = new FormData();
+    form.append("image", file);
+    form.append("section", section);
+
+    try {
+      const res  = await fetch("/api/admin/extract", {
+        method: "POST",
+        headers: { "x-admin-token": token },
+        body: form,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+
+      if (section === "tracks") {
+        const extracted: ExtractedTrack[] = (json.data?.tracks ?? []).map(
+          (t: { rank?: number; title: string; artist: string }, i: number) => ({
+            rank: t.rank ?? i + 1,
+            title: t.title,
+            artist: t.artist,
+          })
+        );
+        setTracks(extracted);
+        showMsg(`✅ ${extracted.length} canciones extraídas. Revisa y guarda.`, "ok");
+      } else {
+        const extracted: ExtractedArtist[] = (json.data?.artists ?? []).map(
+          (a: { name: string; genre?: string }) => ({
+            name: a.name, genre: a.genre ?? "",
+          })
+        );
+        setArtists(extracted);
+        showMsg(`✅ ${extracted.length} artistas extraídos. Revisa y guarda.`, "ok");
+      }
+    } catch (e) {
+      showMsg(`Error: ${e}`, "err");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // ── Save override ──────────────────────────────────────────────────────────
+  const saveOverride = async () => {
+    if (!token || !countryCode) return;
+    setSaving(true);
+    showMsg("Buscando previews en Deezer y guardando…", "info");
+
+    try {
+      const res = await fetch(`/api/admin/override/${countryCode}`, {
+        method: "POST",
+        headers: {
+          "x-admin-token": token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          countryName,
+          tracks: tracks.map((t) => ({ title: t.title, artist: t.artist })),
+          artists: artists.map((a) => ({ name: a.name, genre: a.genre })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      showMsg("✅ Override guardado. Los datos son permanentes hasta que los cambies.", "ok");
+      setAutoUpdate(false);
+      await loadOverride(countryCode);
+    } catch (e) {
+      showMsg(`Error al guardar: ${e}`, "err");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Toggle auto-update ─────────────────────────────────────────────────────
+  const toggleAutoUpdate = async () => {
+    if (!token || !countryCode) return;
+
+    if (autoUpdate) {
+      // Pause: fetch current data and save as override (freeze it)
+      setSaving(true);
+      showMsg("Pausando auto-actualización — congelando datos actuales…", "info");
+      try {
+        const res  = await fetch(`/api/country/${countryCode}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        const saveRes = await fetch(`/api/admin/override/${countryCode}`, {
+          method: "POST",
+          headers: { "x-admin-token": token!, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            countryName,
+            tracks: (data.topTracks ?? []).map((t: { name: string; artistName: string }) => ({
+              title: t.name, artist: t.artistName,
+            })),
+            artists: (data.topArtists ?? []).map((a: { name: string; genres: string[] }) => ({
+              name: a.name, genre: a.genres?.[0] ?? "",
+            })),
+          }),
+        });
+        if (!saveRes.ok) throw new Error("No se pudo guardar");
+        showMsg("⏸ Auto-actualización pausada. Datos congelados.", "ok");
+        await loadOverride(countryCode);
+      } catch (e) {
+        showMsg(`Error: ${e}`, "err");
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Resume: delete override
+      await fetch(`/api/admin/override/${countryCode}`, {
+        method: "DELETE",
+        headers: { "x-admin-token": token! },
+      });
+      setAutoUpdate(true);
+      setOverrideInfo({ exists: false });
+      setTracks([]);
+      setArtists([]);
+      showMsg("🔄 Auto-actualización reactivada. Last.fm/Groq actualizarán los datos.", "ok");
+    }
+  };
+
+  // ── Clear override ─────────────────────────────────────────────────────────
+  const clearOverride = async () => {
+    if (!token || !countryCode || !confirm(`¿Eliminar override de ${countryName}?`)) return;
+    await fetch(`/api/admin/override/${countryCode}`, {
+      method: "DELETE",
+      headers: { "x-admin-token": token },
+    });
+    setAutoUpdate(true);
+    setOverrideInfo({ exists: false });
+    setTracks([]);
+    setArtists([]);
+    showMsg("Override eliminado. Vuelve a Last.fm/Groq.", "ok");
+  };
+
+  const filteredCountries = ALL_COUNTRIES.filter((c) =>
+    c.name.toLowerCase().includes(countrySearch.toLowerCase())
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (!authed) return <AuthGate onAuth={handleAuth} />;
+
+  return (
+    <div className="min-h-screen" style={{ background: "#0d1b2a" }}>
+      {/* Confirmation modal */}
+      {pending && (
+        <SummaryModal
+          pending={pending}
+          countryName={countryName || "este país"}
+          onConfirm={runExtraction}
+          onCancel={() => setPending(null)}
+        />
+      )}
+
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-3 bg-[#0a1628]/90 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🔧</span>
+          <span className="text-white font-bold">SoundGlobal Admin</span>
+          <a href="/" className="text-xs text-gray-500 hover:text-gray-300 ml-2 transition-colors">← Volver al mapa</a>
+        </div>
+        <button
+          onClick={() => { setToken(null); setAuthed(false); }}
+          className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+        >
+          Cerrar sesión
+        </button>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+
+        {/* Toast */}
+        {msg && (
+          <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+            msg.type === "ok"  ? "bg-green-500/15 border border-green-500/30 text-green-300" :
+            msg.type === "err" ? "bg-red-500/15 border border-red-500/30 text-red-300" :
+            "bg-[#38bdf8]/10 border border-[#38bdf8]/30 text-[#38bdf8]"
+          }`}>
+            {msg.text}
+          </div>
+        )}
+
+        {/* Country selector */}
+        <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-widest mb-3">Seleccionar país</p>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Buscar país…"
+              value={countrySearch || countryName}
+              onChange={(e) => { setCountrySearch(e.target.value); setShowDropdown(true); }}
+              onFocus={() => setShowDropdown(true)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-[#38bdf8]/50 transition-colors"
+            />
+            {showDropdown && filteredCountries.length > 0 && (
+              <div className="absolute top-full mt-1 w-full bg-[#0e1f35] border border-white/10 rounded-xl shadow-2xl z-20 max-h-56 overflow-y-auto">
+                {filteredCountries.slice(0, 40).map((c) => (
+                  <button
+                    key={c.code}
+                    onClick={() => {
+                      setCountryCode(c.code);
+                      setCountryName(c.name);
+                      setCountrySearch("");
+                      setShowDropdown(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+                  >
+                    <span>{c.code}</span>
+                    <span>{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Country status card */}
+        {countryCode && (
+          <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-bold text-base">{countryName}</h2>
+                {overrideInfo?.exists ? (
+                  <p className="text-xs text-amber-400 mt-0.5">
+                    📌 Override activo — {overrideInfo.trackCount} tracks · {overrideInfo.artistCount} artistas
+                    {overrideInfo.cachedAt && (
+                      <span className="text-gray-500 ml-1">
+                        · guardado {new Date(overrideInfo.cachedAt).toLocaleDateString("es-ES")}
+                      </span>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-xs text-green-400 mt-0.5">
+                    🔄 Auto-actualización activa (Last.fm / Groq cada 6h)
+                  </p>
+                )}
+              </div>
+              {/* Auto-update toggle */}
+              <button
+                onClick={toggleAutoUpdate}
+                disabled={saving}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                  autoUpdate
+                    ? "border-green-500/30 text-green-400 hover:bg-green-500/10"
+                    : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                }`}
+              >
+                {autoUpdate ? "🔄 Auto · Pausar" : "⏸ Pausado · Reanudar"}
+              </button>
+            </div>
+
+            {overrideInfo?.exists && (
+              <button
+                onClick={clearOverride}
+                className="text-xs text-red-400/60 hover:text-red-400 transition-colors"
+              >
+                🗑 Eliminar override completo
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Upload sections */}
+        {countryCode && (
+          <>
+            {/* Lo más popular */}
+            <Section
+              title="Lo más popular"
+              icon="🎵"
+              description="Sube una captura de Spotify Charts, Apple Music Top 100, etc."
+              fileRef={tracksFileRef}
+              onFileChange={(f) => handleFileChange("tracks", f)}
+              extracting={extracting}
+            >
+              {tracks.length > 0 && (
+                <EditableTrackTable tracks={tracks} onChange={setTracks} />
+              )}
+            </Section>
+
+            {/* Top Artistas */}
+            <Section
+              title="Top Artistas"
+              icon="🎤"
+              description="Sube una captura de top artistas. O añade manualmente."
+              fileRef={artistsFileRef}
+              onFileChange={(f) => handleFileChange("artists", f)}
+              extracting={extracting}
+            >
+              {artists.length > 0 && (
+                <EditableArtistTable artists={artists} onChange={setArtists} />
+              )}
+            </Section>
+
+            {/* Save button */}
+            {(tracks.length > 0 || artists.length > 0) && (
+              <button
+                onClick={saveOverride}
+                disabled={saving}
+                className="w-full py-3 bg-[#38bdf8] hover:bg-[#0ea5e9] disabled:opacity-50 text-[#0d1b2a] font-bold rounded-xl text-sm transition-colors"
+              >
+                {saving ? "Guardando y buscando en Deezer…" : `💾 Guardar override para ${countryName}`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Section card ──────────────────────────────────────────────────────────────
+function Section({
+  title, icon, description, fileRef, onFileChange, extracting, children,
+}: {
+  title: string; icon: string; description: string;
+  fileRef: React.RefObject<HTMLInputElement | null>;
+  onFileChange: (f: File) => void;
+  extracting: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-white font-semibold text-sm">{icon} {title}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+        </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={extracting}
+          className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+        >
+          📸 Subir captura
+        </button>
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        ref={fileRef}
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); }}
+      />
+      {extracting && (
+        <div className="flex items-center gap-2 text-[#38bdf8] text-xs">
+          <div className="w-3 h-3 border border-[#38bdf8] border-t-transparent rounded-full animate-spin" />
+          Extrayendo con IA…
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ── Editable track table ──────────────────────────────────────────────────────
+function EditableTrackTable({
+  tracks, onChange,
+}: {
+  tracks: { rank: number; title: string; artist: string }[];
+  onChange: (t: { rank: number; title: string; artist: string }[]) => void;
+}) {
+  const update = (i: number, field: "title" | "artist", val: string) => {
+    const next = [...tracks];
+    next[i] = { ...next[i], [field]: val };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(tracks.filter((_, j) => j !== i));
+  const add    = () => onChange([...tracks, { rank: tracks.length + 1, title: "", artist: "" }]);
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] text-gray-600 uppercase tracking-widest">{tracks.length} canciones extraídas — edita si algo está mal</p>
+      {tracks.map((t, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-gray-600 text-xs w-5 text-right flex-shrink-0">{t.rank}</span>
+          <input
+            value={t.title}
+            onChange={(e) => update(i, "title", e.target.value)}
+            placeholder="Título"
+            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#38bdf8]/30 min-w-0"
+          />
+          <input
+            value={t.artist}
+            onChange={(e) => update(i, "artist", e.target.value)}
+            placeholder="Artista"
+            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-[#38bdf8]/30 min-w-0"
+          />
+          <button onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors">✕</button>
+        </div>
+      ))}
+      <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir fila</button>
+    </div>
+  );
+}
+
+// ── Editable artist table ─────────────────────────────────────────────────────
+function EditableArtistTable({
+  artists, onChange,
+}: {
+  artists: { name: string; genre: string }[];
+  onChange: (a: { name: string; genre: string }[]) => void;
+}) {
+  const update = (i: number, field: "name" | "genre", val: string) => {
+    const next = [...artists];
+    next[i] = { ...next[i], [field]: val };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(artists.filter((_, j) => j !== i));
+  const add    = () => onChange([...artists, { name: "", genre: "" }]);
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] text-gray-600 uppercase tracking-widest">{artists.length} artistas extraídos</p>
+      {artists.map((a, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            value={a.name}
+            onChange={(e) => update(i, "name", e.target.value)}
+            placeholder="Artista"
+            className="flex-1 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#38bdf8]/30 min-w-0"
+          />
+          <input
+            value={a.genre}
+            onChange={(e) => update(i, "genre", e.target.value)}
+            placeholder="Género"
+            className="w-28 bg-white/5 border border-white/5 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-[#38bdf8]/30 flex-shrink-0"
+          />
+          <button onClick={() => remove(i)} className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors">✕</button>
+        </div>
+      ))}
+      <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir artista</button>
+    </div>
+  );
+}

@@ -41,3 +41,25 @@ export async function cacheSet(key: string, value: unknown, ttlSeconds: number):
     // silently fail — cache is best-effort
   }
 }
+
+// Permanent storage (no TTL) — used for manual admin overrides
+export async function cacheSetPermanent(key: string, value: unknown): Promise<boolean> {
+  try {
+    const redis = getRedis();
+    if (!redis) return false;
+    await redis.set(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function cacheDel(key: string): Promise<void> {
+  try {
+    const redis = getRedis();
+    if (!redis) return;
+    await redis.del(key);
+  } catch {
+    // silent
+  }
+}

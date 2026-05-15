@@ -29,6 +29,14 @@ export async function GET(
   const { code } = await params;
   const countryCode = code.toUpperCase();
 
+  // ── Manual override (admin panel) — highest priority ─────────────────────
+  const override = await cacheGet<CountryData>(`override:country:v1:${countryCode}`);
+  if (override) {
+    return NextResponse.json(override, {
+      headers: { "X-Cache": "OVERRIDE", "Cache-Control": "no-store" },
+    });
+  }
+
   // ── Last.fm path (countries in COUNTRY_MAP) ──────────────────────────────
   const info = getCountryInfo(countryCode);
   if (info) {
