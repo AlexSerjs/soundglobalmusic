@@ -200,7 +200,13 @@ export default function CountryModal({ countryCode, countryName, onClose }: Coun
 
         {/* Footer */}
         <div className="px-5 py-2.5 border-t border-white/10 flex-shrink-0 flex items-center justify-between">
-          <p className="text-xs text-gray-700">Caché 6h · Previews via Deezer</p>
+          {countryData?.source === "groq" ? (
+            <span className="flex items-center gap-1.5 text-xs text-cyan-400/70">
+              <span>🤖</span> Sugerencias via Groq AI · Previews via Deezer
+            </span>
+          ) : (
+            <p className="text-xs text-gray-700">Caché 6h · Previews via Deezer</p>
+          )}
           {countryData && (
             <span className="text-xs text-gray-700">
               {new Date(countryData.cachedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}

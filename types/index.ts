@@ -27,6 +27,7 @@ export interface CountryData {
   topArtists: Artist[];
   topTracks: Track[];
   cachedAt: number;
+  source?: "lastfm" | "groq";   // "groq" = AI fallback, no Last.fm data available
 }
 
 export interface GlobalData {
