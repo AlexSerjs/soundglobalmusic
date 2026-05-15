@@ -19,98 +19,167 @@ const WorldMap = dynamic(() => import("@/components/WorldMap"), {
   ),
 });
 
+// ── Now-Playing pill ────────────────────────────────────────────────────────
+const EQ_DELAYS = [0, 0.18, 0.32, 0.1];
+
+function NowPlayingPill({
+  isPlaying,
+  onToggle,
+  title,
+}: {
+  isPlaying: boolean;
+  onToggle: () => void;
+  title: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-[7px] rounded-xl bg-[#0a1628]/90 border border-white/15 backdrop-blur-sm select-none">
+      {/* Animated equalizer bars */}
+      <div className="flex items-end gap-[2px] h-3.5 flex-shrink-0">
+        {EQ_DELAYS.map((delay, i) => (
+          <div
+            key={i}
+            className="w-[2px] rounded-full bg-[#38bdf8]"
+            style={{
+              height: "100%",
+              transformOrigin: "bottom",
+              transform: isPlaying ? undefined : "scaleY(0.2)",
+              opacity: isPlaying ? 1 : 0.35,
+              animation: isPlaying
+                ? `eq-bar 0.75s ease-in-out infinite ${delay}s`
+                : "none",
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Track title */}
+      <span className="text-[#38bdf8] text-[10px] font-semibold tracking-wide truncate max-w-[88px] leading-none">
+        {title}
+      </span>
+
+      {/* Play / Pause */}
+      <button
+        onClick={onToggle}
+        className="flex-shrink-0 text-gray-400 hover:text-white transition-colors ml-0.5"
+        title={isPlaying ? "Pausar" : "Reproducir"}
+      >
+        {isPlaying ? (
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6"  y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ── Main page ───────────────────────────────────────────────────────────────
 export default function Home() {
-  const [selectedCountry, setSelectedCountry]   = useState<{ code: string; name: string } | null>(null);
+  const [selectedCountry, setSelectedCountry]     = useState<{ code: string; name: string } | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen]     = useState(false);
-  const [musicPlaying, setMusicPlaying]           = useState(false);
-  const [musicMuted, setMusicMuted]               = useState(false);
 
-  // FAB glitch refs — note: these go on INNER divs, not the absolute wrapper
-  const fabSidebarRef = useRef<HTMLDivElement>(null);
-  const fabPanelRef   = useRef<HTMLDivElement>(null);
+  // Audio state
+  const [audioReady, setAudioReady]   = useState(false);
+  const [isPlaying, setIsPlaying]     = useState(false);
+  const [trackTitle, setTrackTitle]   = useState("Waiting for Love");
+  const audioRef        = useRef<HTMLAudioElement | null>(null);
+  const userPausedRef   = useRef(false);   // true only when user manually paused
+  const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Intro music
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
+  // Load intro track and wire up audio
   useEffect(() => {
-    let played = false;
-    let fadeIn: ReturnType<typeof setInterval>;
-    let fadeOut: ReturnType<typeof setInterval>;
-    let stopTimer: ReturnType<typeof setTimeout>;
+    let audio: HTMLAudioElement | null = null;
 
-    const startMusic = async () => {
-      if (played) return;
-      played = true;
+    const setup = async () => {
       try {
         const res = await fetch("/api/intro-track");
         if (!res.ok) return;
-        const { preview } = await res.json();
+        const { preview, title } = await res.json();
         if (!preview) return;
 
-        const audio = new Audio(preview);
+        audio = new Audio(preview);
+        audio.volume = 1.0;
         audioRef.current = audio;
-        audio.volume = 0;
 
-        await audio.play();
-        setMusicPlaying(true);
+        if (title) setTrackTitle(title);
 
-        // Fade in to 0.22 over ~2s
-        let vol = 0;
-        fadeIn = setInterval(() => {
-          vol = Math.min(vol + 0.02, 0.22);
-          if (audioRef.current) audioRef.current.volume = vol;
-          if (vol >= 0.22) clearInterval(fadeIn);
-        }, 90);
+        audio.addEventListener("play",  () => setIsPlaying(true));
+        audio.addEventListener("pause", () => setIsPlaying(false));
+        audio.addEventListener("ended", () => setIsPlaying(false));
 
-        // Start fade-out after 20s
-        stopTimer = setTimeout(() => {
-          let v = audioRef.current?.volume ?? 0.22;
-          fadeOut = setInterval(() => {
-            v = Math.max(v - 0.015, 0);
-            if (audioRef.current) audioRef.current.volume = v;
-            if (v <= 0) {
-              clearInterval(fadeOut);
-              audioRef.current?.pause();
-              setMusicPlaying(false);
-            }
-          }, 90);
-        }, 20000);
+        setAudioReady(true);
+
+        // Try autoplay
+        try {
+          await audio.play();
+          scheduleAutoStop();
+        } catch {
+          // Blocked — wait for first interaction
+        }
       } catch {
-        // autoplay blocked or network error — silent fail
+        // silent
       }
     };
 
-    // Try autoplay immediately
-    startMusic();
+    setup();
 
-    // Fallback: trigger on first user interaction (mobile autoplay policy)
+    // Mobile autoplay fallback: start on first user interaction if not manually paused
     const onInteract = () => {
-      startMusic();
-      document.removeEventListener("click", onInteract);
+      if (audioRef.current && audioRef.current.paused && !userPausedRef.current) {
+        audioRef.current.play().catch(() => {});
+        scheduleAutoStop();
+      }
+      document.removeEventListener("click",      onInteract);
       document.removeEventListener("touchstart", onInteract);
     };
-    document.addEventListener("click", onInteract);
+    document.addEventListener("click",      onInteract);
     document.addEventListener("touchstart", onInteract);
 
     return () => {
-      clearInterval(fadeIn);
-      clearInterval(fadeOut);
-      clearTimeout(stopTimer);
-      audioRef.current?.pause();
-      document.removeEventListener("click", onInteract);
+      audio?.pause();
+      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      document.removeEventListener("click",      onInteract);
       document.removeEventListener("touchstart", onInteract);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleMute = useCallback(() => {
-    if (!audioRef.current) return;
-    const next = !musicMuted;
-    audioRef.current.muted = next;
-    setMusicMuted(next);
-  }, [musicMuted]);
+  const scheduleAutoStop = () => {
+    if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+    autoStopTimerRef.current = setTimeout(() => {
+      // Auto-pause after 20s (user can still hit play)
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+        // Reset to start so next play starts from beginning
+        audioRef.current.currentTime = 0;
+      }
+    }, 20000);
+  };
 
-  // Random glitch on FAB buttons
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      userPausedRef.current = false;
+      if (audio.ended || audio.currentTime === 0) audio.currentTime = 0;
+      audio.play().catch(() => {});
+    } else {
+      userPausedRef.current = true;
+      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      audio.pause();
+    }
+  }, []);
+
+  // FAB glitch refs (go on inner powered-logo divs, NOT the absolute wrapper)
+  const fabSidebarRef = useRef<HTMLDivElement>(null);
+  const fabPanelRef   = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const refs = [fabSidebarRef, fabPanelRef];
     const trigger = () => {
@@ -130,8 +199,8 @@ export default function Home() {
     setMobileSidebarOpen(false);
   }, []);
 
-  const handleClose = useCallback(() => setSelectedCountry(null), []);
-  const closeDrawers = useCallback(() => {
+  const handleClose    = useCallback(() => setSelectedCountry(null), []);
+  const closeDrawers   = useCallback(() => {
     setMobileSidebarOpen(false);
     setMobilePanelOpen(false);
   }, []);
@@ -147,7 +216,7 @@ export default function Home() {
         />
       )}
 
-      {/* Left sidebar — desktop always visible, mobile slide-in drawer */}
+      {/* Left sidebar */}
       <div className={`
         fixed md:relative inset-y-0 left-0 z-40
         transition-transform duration-300 ease-in-out
@@ -162,37 +231,25 @@ export default function Home() {
       {/* Center: header + map */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex items-center justify-between px-4 py-2.5 bg-[#0a1628]/80 backdrop-blur-sm border-b border-white/10 flex-shrink-0 z-20 relative">
+
+          {/* Left: logo + desktop now-playing */}
           <div className="flex items-center gap-2">
             <span className="text-xl">🎵</span>
             <span className="text-white font-bold text-lg tracking-tight">SoundGlobal</span>
             <span className="text-gray-500 text-xs hidden sm:block">by theserjs</span>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <PoweredBy />
-            {/* Music toggle — only shows while audio is active */}
-            {musicPlaying && (
-              <button
-                onClick={toggleMute}
-                title={musicMuted ? "Activar música" : "Silenciar música"}
-                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-              >
-                {musicMuted ? (
-                  // Speaker off
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
-                  </svg>
-                ) : (
-                  // Speaker on with waves
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-4-4H5a1 1 0 01-1-1v-2a1 1 0 011-1h3l4-4z"/>
-                  </svg>
-                )}
-              </button>
+            {/* Desktop now-playing — hidden on mobile (mobile version is in map area) */}
+            {audioReady && (
+              <div className="hidden md:block ml-1">
+                <NowPlayingPill
+                  isPlaying={isPlaying}
+                  onToggle={togglePlay}
+                  title={trackTitle}
+                />
+              </div>
             )}
           </div>
+
+          <PoweredBy />
         </header>
 
         <div className="flex-1 relative">
@@ -201,11 +258,13 @@ export default function Home() {
             selectedCode={selectedCountry?.code ?? null}
           />
 
-          {/* Mobile FAB — top strip: open countries sidebar
-              IMPORTANT: absolute wrapper is separate from powered-logo wrapper
-              to avoid position:relative in .powered-logo overriding position:absolute */}
-          <div className="md:hidden absolute top-3 left-4 z-10">
-            <div ref={fabSidebarRef} className="powered-logo">
+          {/* Mobile top strip: [Países] [Now Playing]
+              Outer div is the absolute positioner — inner powered-logo handles glitch.
+              Separating them is critical: .powered-logo sets position:relative which
+              would override Tailwind's absolute if they were on the same element. */}
+          <div className="md:hidden absolute top-3 left-4 right-16 z-10 flex items-center gap-2">
+            {/* Países FAB */}
+            <div ref={fabSidebarRef} className="powered-logo flex-shrink-0">
               <button
                 className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors"
                 onClick={() => { setMobileSidebarOpen(true); setMobilePanelOpen(false); }}
@@ -216,7 +275,7 @@ export default function Home() {
                 Países
               </button>
               <div className="glitch-layer glitch-red" aria-hidden>
-                <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium pointer-events-none">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
                   </svg>
@@ -224,7 +283,7 @@ export default function Home() {
                 </button>
               </div>
               <div className="glitch-layer glitch-cyan" aria-hidden>
-                <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium pointer-events-none">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
                   </svg>
@@ -232,9 +291,18 @@ export default function Home() {
                 </button>
               </div>
             </div>
+
+            {/* Mobile now-playing — right of Países */}
+            {audioReady && (
+              <NowPlayingPill
+                isPlaying={isPlaying}
+                onToggle={togglePlay}
+                title={trackTitle}
+              />
+            )}
           </div>
 
-          {/* Mobile FAB — bottom strip: open global panel */}
+          {/* Mobile bottom FAB: Top 50 Global */}
           <div className="md:hidden absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
             <div ref={fabPanelRef} className="powered-logo">
               <button
@@ -261,7 +329,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Right panel — desktop always visible, mobile slide-in drawer */}
+      {/* Right panel */}
       <div className={`
         fixed md:relative inset-y-0 right-0 z-40
         transition-transform duration-300 ease-in-out

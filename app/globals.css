@@ -89,6 +89,13 @@ body {
   100% { opacity: 0; }
 }
 
+/* ── Equalizer bars for now-playing widget ─────────────────────────────── */
+@keyframes eq-bar {
+  0%, 100% { transform: scaleY(0.2); }
+  50%       { transform: scaleY(1);   }
+}
+
+/* ── ──────────────────────────────────────────────────────────────────── */
 @keyframes glitch-shift-cyan {
   0%   { opacity: 0; }
   10%  { opacity: 0; }
