@@ -206,7 +206,7 @@ export default function AdminPage() {
 
   const showMsg = (text: string, type: "ok" | "err" | "info" = "info") => {
     setMsg({ text, type });
-    setTimeout(() => setMsg(null), 5000);
+    setTimeout(() => setMsg(null), type === "ok" ? 10000 : 5000);
   };
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -367,7 +367,7 @@ export default function AdminPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      showMsg("✅ Override guardado. Los datos son permanentes hasta que los cambies.", "ok");
+      showMsg(`✅ ¡Guardado! ${countryName} ya muestra los nuevos datos. Abre el mapa y haz clic en el país para verlo.`, "ok");
       setAutoUpdate(false);
       await loadOverride(countryCode);
     } catch (e) {
@@ -393,7 +393,7 @@ export default function AdminPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      showMsg("✅ Escena local guardada permanentemente.", "ok");
+      showMsg(`✅ ¡Escena local guardada! Abre el mapa, clic en ${countryName} → tab Escena Local para verlo.`, "ok");
     } catch (e) {
       showMsg(`Error al guardar escena: ${e}`, "err");
     } finally {
@@ -504,14 +504,16 @@ export default function AdminPage() {
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
 
-        {/* Toast */}
+        {/* Toast — fixed at top so it's always visible */}
         {msg && (
-          <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
-            msg.type === "ok"  ? "bg-green-500/15 border border-green-500/30 text-green-300" :
-            msg.type === "err" ? "bg-red-500/15 border border-red-500/30 text-red-300" :
-            "bg-[#38bdf8]/10 border border-[#38bdf8]/30 text-[#38bdf8]"
-          }`}>
-            {msg.text}
+          <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg mx-auto px-4`}>
+            <div className={`px-4 py-3 rounded-xl text-sm font-medium shadow-2xl ${
+              msg.type === "ok"  ? "bg-green-500 text-white" :
+              msg.type === "err" ? "bg-red-500/90 border border-red-400/30 text-white" :
+              "bg-[#0e1f35] border border-[#38bdf8]/40 text-[#38bdf8]"
+            }`}>
+              {msg.text}
+            </div>
           </div>
         )}
 

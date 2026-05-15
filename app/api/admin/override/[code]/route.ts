@@ -109,6 +109,12 @@ export async function POST(
       );
     }
 
+    // Bust the regular cache so the site picks up the override immediately
+    await Promise.all([
+      cacheDel(`country:v2:${countryCode}`),
+      cacheDel(`country:groq:v1:${countryCode}`),
+    ]);
+
     return NextResponse.json({ ok: true, data });
   } catch (err) {
     console.error("[admin/override]", err);

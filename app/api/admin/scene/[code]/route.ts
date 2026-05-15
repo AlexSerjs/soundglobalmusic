@@ -88,6 +88,9 @@ export async function POST(
       );
     }
 
+    // Bust the scene cache so the site picks up the override immediately
+    await cacheDel(`scene:v6:${countryCode}`);
+
     return NextResponse.json({ ok: true, data });
   } catch (err) {
     console.error("[admin/scene]", err);
