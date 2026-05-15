@@ -2,19 +2,27 @@
 
 import { useState, useMemo } from "react";
 import { COUNTRY_MAP } from "@/lib/playlists";
+import { GROQ_COUNTRY_NAMES } from "@/lib/countries";
 
-// Convert ISO alpha-2 to flag emoji
 function flag(code: string): string {
-  return code
-    .toUpperCase()
-    .split("")
+  return code.toUpperCase().split("")
     .map((c) => String.fromCodePoint(c.charCodeAt(0) + 127397))
     .join("");
 }
 
-const COUNTRIES = Object.entries(COUNTRY_MAP)
-  .map(([code, info]) => ({ code, name: info.name }))
-  .sort((a, b) => a.name.localeCompare(b.name));
+// Merge Last.fm countries + Groq countries into one sorted list
+const COUNTRIES = [
+  ...Object.entries(COUNTRY_MAP).map(([code, info]) => ({
+    code,
+    name: info.name,
+    isGroq: false,
+  })),
+  ...Object.entries(GROQ_COUNTRY_NAMES).map(([code, name]) => ({
+    code,
+    name,
+    isGroq: true,
+  })),
+].sort((a, b) => a.name.localeCompare(b.name));
 
 interface CountrySidebarProps {
   onCountryClick: (code: string, name: string) => void;
@@ -22,7 +30,7 @@ interface CountrySidebarProps {
 }
 
 export default function CountrySidebar({ onCountryClick, selectedCode }: CountrySidebarProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery]       = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
   const filtered = useMemo(
@@ -113,7 +121,10 @@ export default function CountrySidebar({ onCountryClick, selectedCode }: Country
                 }`}
               >
                 <span className="text-base leading-none flex-shrink-0">{flag(country.code)}</span>
-                <span className="text-sm truncate">{country.name}</span>
+                <span className="text-sm truncate flex-1">{country.name}</span>
+                {country.isGroq && !isSelected && (
+                  <span className="text-[9px] text-cyan-500/50 flex-shrink-0 font-medium">AI</span>
+                )}
                 {isSelected && (
                   <span className="ml-auto flex-shrink-0 w-1.5 h-1.5 rounded-full bg-[#38bdf8]" />
                 )}
