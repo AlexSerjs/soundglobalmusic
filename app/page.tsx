@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import CountryModal from "@/components/CountryModal";
 import CountrySidebar from "@/components/CountrySidebar";
@@ -23,6 +23,24 @@ export default function Home() {
   const [selectedCountry, setSelectedCountry]   = useState<{ code: string; name: string } | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen]     = useState(false);
+
+  const fabSidebarRef = useRef<HTMLDivElement>(null);
+  const fabPanelRef   = useRef<HTMLDivElement>(null);
+
+  // Random glitch on FAB buttons
+  useEffect(() => {
+    const refs = [fabSidebarRef, fabPanelRef];
+    const trigger = () => {
+      const ref = refs[Math.floor(Math.random() * refs.length)];
+      if (ref.current) {
+        ref.current.classList.add("glitching");
+        setTimeout(() => ref.current?.classList.remove("glitching"), 600);
+      }
+      setTimeout(trigger, 2000 + Math.random() * 5000);
+    };
+    const t = setTimeout(trigger, 1000 + Math.random() * 3000);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleCountryClick = useCallback((code: string, name: string) => {
     setSelectedCountry({ code, name });
@@ -76,24 +94,62 @@ export default function Home() {
           />
 
           {/* Mobile FAB — top strip: open countries sidebar */}
-          <button
-            className="md:hidden absolute top-3 left-4 z-10 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors"
-            onClick={() => { setMobileSidebarOpen(true); setMobilePanelOpen(false); }}
+          <div
+            ref={fabSidebarRef}
+            className="powered-logo md:hidden absolute top-3 left-4 z-10"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
-            </svg>
-            Países
-          </button>
+            <button
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors"
+              onClick={() => { setMobileSidebarOpen(true); setMobilePanelOpen(false); }}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+              Países
+            </button>
+            <div className="glitch-layer glitch-red" aria-hidden>
+              <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+                Países
+              </button>
+            </div>
+            <div className="glitch-layer glitch-cyan" aria-hidden>
+              <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+                Países
+              </button>
+            </div>
+          </div>
 
           {/* Mobile FAB — bottom strip: open global panel */}
-          <button
-            className="md:hidden absolute bottom-14 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors whitespace-nowrap"
-            onClick={() => { setMobilePanelOpen(true); setMobileSidebarOpen(false); }}
+          <div
+            ref={fabPanelRef}
+            className="powered-logo md:hidden absolute bottom-14 left-1/2 -translate-x-1/2 z-10"
           >
-            <span>🌍</span>
-            Top 50 Global
-          </button>
+            <button
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-gray-300 hover:text-white text-sm font-medium backdrop-blur-sm transition-colors whitespace-nowrap"
+              onClick={() => { setMobilePanelOpen(true); setMobileSidebarOpen(false); }}
+            >
+              <span>🌍</span>
+              Top 50 Global
+            </button>
+            <div className="glitch-layer glitch-red" aria-hidden>
+              <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <span>🌍</span>
+                Top 50 Global
+              </button>
+            </div>
+            <div className="glitch-layer glitch-cyan" aria-hidden>
+              <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a1628]/90 border border-white/15 text-sm font-medium whitespace-nowrap pointer-events-none">
+                <span>🌍</span>
+                Top 50 Global
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
