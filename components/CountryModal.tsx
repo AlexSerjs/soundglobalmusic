@@ -33,7 +33,7 @@ export default function CountryModal({ countryCode, countryName, onClose }: Coun
     setCurrentlyPlaying("");
     setActiveTab("artists");
 
-    fetch(`/api/country/${countryCode}`)
+    fetch(`/api/country/${countryCode}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
@@ -47,7 +47,7 @@ export default function CountryModal({ countryCode, countryName, onClose }: Coun
   useEffect(() => {
     if (activeTab !== "scene" || sceneArtists !== null) return;
     setSceneLoading(true);
-    fetch(`/api/country/${countryCode}/scene`)
+    fetch(`/api/country/${countryCode}/scene`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setSceneArtists(d.artists ?? []))
       .catch(() => setSceneArtists([]))
