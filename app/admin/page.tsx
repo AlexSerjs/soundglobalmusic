@@ -194,9 +194,9 @@ export default function AdminPage() {
   const [artists, setArtists]   = useState<ExtractedArtist[]>([]);
   const [scene, setScene]       = useState<ExtractedScene[]>([]);
 
-  const [pending, setPending]   = useState<PendingExtract | null>(null);
-  const [extracting, setExtracting] = useState(false);
-  const [saving, setSaving]     = useState(false);
+  const [pending, setPending]         = useState<PendingExtract | null>(null);
+  const [extractingSection, setExtractingSection] = useState<Section | null>(null);
+  const [saving, setSaving]           = useState(false);
   const [savingScene, setSavingScene] = useState(false);
   const [msg, setMsg]           = useState<{ text: string; type: "ok" | "err" | "info" } | null>(null);
 
@@ -288,7 +288,7 @@ export default function AdminPage() {
     if (!pending || !token) return;
     const section = pending.section;
     setPending(null);
-    setExtracting(true);
+    setExtractingSection(section);
     showMsg("Leyendo imagen con IA…", "info");
 
     // Get the file from the correct input
@@ -342,7 +342,7 @@ export default function AdminPage() {
     } catch (e) {
       showMsg(`Error: ${e}`, "err");
     } finally {
-      setExtracting(false);
+      setExtractingSection(null);
     }
   };
 
@@ -615,7 +615,7 @@ export default function AdminPage() {
               description="Sube una captura de Spotify Charts, Apple Music Top 100, etc."
               fileRef={tracksFileRef}
               onFileChange={(f) => handleFileChange("tracks", f)}
-              extracting={extracting}
+              extracting={extractingSection === "tracks"}
             >
               {tracks.length > 0 && (
                 <EditableTrackTable tracks={tracks} onChange={setTracks} />
@@ -629,21 +629,26 @@ export default function AdminPage() {
               description="Sube una captura de top artistas. O añade manualmente."
               fileRef={artistsFileRef}
               onFileChange={(f) => handleFileChange("artists", f)}
-              extracting={extracting}
+              extracting={extractingSection === "artists"}
             >
               {artists.length > 0 && (
                 <EditableArtistTable artists={artists} onChange={setArtists} />
               )}
             </Section>
 
-            {/* Save tracks + artists */}
+            {/* Save tracks + artists — label reflects exactly what has data */}
             {(tracks.length > 0 || artists.length > 0) && (
               <button
                 onClick={saveOverride}
                 disabled={saving}
                 className="w-full py-3 bg-[#38bdf8] hover:bg-[#0ea5e9] disabled:opacity-50 text-[#0d1b2a] font-bold rounded-xl text-sm transition-colors"
               >
-                {saving ? "Guardando y buscando en Deezer…" : `💾 Guardar Lo más popular + Top Artistas para ${countryName}`}
+                {saving
+                  ? "Guardando y buscando en Deezer…"
+                  : `💾 Guardar ${[
+                      tracks.length > 0 && "Lo más popular",
+                      artists.length > 0 && "Top Artistas",
+                    ].filter(Boolean).join(" + ")} para ${countryName}`}
               </button>
             )}
 
@@ -660,7 +665,7 @@ export default function AdminPage() {
               description="Sube una captura con artistas locales del país. Extrae nombre + canción representativa."
               fileRef={sceneFileRef}
               onFileChange={(f) => handleFileChange("scene", f)}
-              extracting={extracting}
+              extracting={extractingSection === "scene"}
             >
               {scene.length > 0 && (
                 <EditableSceneTable scene={scene} onChange={setScene} />
