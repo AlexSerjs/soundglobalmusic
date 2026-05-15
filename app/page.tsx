@@ -25,10 +25,14 @@ const EQ_DELAYS = [0, 0.18, 0.32, 0.1];
 function NowPlayingPill({
   isPlaying,
   onToggle,
+  onNext,
+  hasNext,
   title,
 }: {
   isPlaying: boolean;
   onToggle: () => void;
+  onNext: () => void;
+  hasNext: boolean;
   title: string;
 }) {
   return (
@@ -74,6 +78,19 @@ function NowPlayingPill({
           </svg>
         )}
       </button>
+
+      {/* Next track */}
+      {hasNext && (
+        <button
+          onClick={onNext}
+          className="flex-shrink-0 text-gray-400 hover:text-white transition-colors"
+          title="Siguiente canción"
+        >
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6 18l8.5-6L6 6v12zm2-8.14L11.03 12 8 14.14V9.86zM16 6h2v12h-2z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -85,48 +102,60 @@ export default function Home() {
   const [mobilePanelOpen, setMobilePanelOpen]     = useState(false);
 
   // Audio state
-  const [audioReady, setAudioReady]   = useState(false);
-  const [isPlaying, setIsPlaying]     = useState(false);
-  const [trackTitle, setTrackTitle]   = useState("Waiting for Love");
-  const audioRef        = useRef<HTMLAudioElement | null>(null);
-  const userPausedRef   = useRef(false);   // true only when user manually paused
-  const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [audioReady, setAudioReady] = useState(false);
+  const [isPlaying, setIsPlaying]   = useState(false);
+  const [trackTitle, setTrackTitle] = useState("Waiting for Love");
+  const audioRef       = useRef<HTMLAudioElement | null>(null);
+  const userPausedRef  = useRef(false);   // true only when user manually paused
 
-  // Load intro track and wire up audio
+  // Playlist state (refs so audio callbacks always see latest value)
+  type IntroTrack = { title: string; artist: string; preview: string };
+  const playlistRef    = useRef<IntroTrack[]>([]);
+  const playIndexRef   = useRef(0);
+  const [hasNext, setHasNext] = useState(false);
+
+  // Swap the audio element to a new track URL and auto-play it
+  const loadTrack = useCallback((track: IntroTrack, autoplay: boolean) => {
+    const prev = audioRef.current;
+    if (prev) { prev.pause(); prev.src = ""; }
+
+    if (!track.preview) return;
+
+    const audio = new Audio(track.preview);
+    audio.volume = 1.0;
+    audioRef.current = audio;
+
+    setTrackTitle(track.title ?? track.artist ?? "");
+
+    audio.addEventListener("play",  () => setIsPlaying(true));
+    audio.addEventListener("pause", () => setIsPlaying(false));
+    // On end: just pause — user decides when to go next
+    audio.addEventListener("ended", () => { setIsPlaying(false); });
+
+    if (autoplay) {
+      audio.muted = true;
+      audio.play().then(() => { audio.muted = false; }).catch(() => {});
+    }
+  }, []);
+
+  // Load intro playlist and wire up audio
   useEffect(() => {
-    let audio: HTMLAudioElement | null = null;
-
     const setup = async () => {
       try {
-        const res = await fetch("/api/intro-track");
+        const res = await fetch("/api/intro-playlist-public");
         if (!res.ok) return;
-        const { preview, title } = await res.json();
-        if (!preview) return;
+        const { playlist, startIndex } = await res.json() as {
+          playlist: IntroTrack[];
+          startIndex: number;
+        };
+        if (!playlist?.length) return;
 
-        audio = new Audio(preview);
-        audio.volume = 1.0;
-        audioRef.current = audio;
-
-        if (title) setTrackTitle(title);
-
-        audio.addEventListener("play",  () => setIsPlaying(true));
-        audio.addEventListener("pause", () => setIsPlaying(false));
-        audio.addEventListener("ended", () => setIsPlaying(false));
-
+        playlistRef.current  = playlist;
+        playIndexRef.current = startIndex;
+        setHasNext(playlist.length > 1);
         setAudioReady(true);
 
-        // Muted-autoplay trick: browsers always allow muted autoplay.
-        // Start muted → play() succeeds → unmute → audio context is active,
-        // volume kicks in. Works on Chrome/Firefox/Edge/Android.
-        // iOS Safari is still strict — falls back to first-touch below.
-        try {
-          audio.muted = true;
-          await audio.play();
-          audio.muted = false;   // unmute now that context is running
-          scheduleAutoStop();
-        } catch {
-          // Truly blocked (iOS) — wait for first interaction
-        }
+        loadTrack(playlist[startIndex], true);
       } catch {
         // silent
       }
@@ -136,9 +165,9 @@ export default function Home() {
 
     // Mobile autoplay fallback: start on first user interaction if not manually paused
     const onInteract = () => {
-      if (audioRef.current && audioRef.current.paused && !userPausedRef.current) {
-        audioRef.current.play().catch(() => {});
-        scheduleAutoStop();
+      const audio = audioRef.current;
+      if (audio && audio.paused && !userPausedRef.current) {
+        audio.play().catch(() => {});
       }
       document.removeEventListener("click",      onInteract);
       document.removeEventListener("touchstart", onInteract);
@@ -147,39 +176,34 @@ export default function Home() {
     document.addEventListener("touchstart", onInteract);
 
     return () => {
-      audio?.pause();
-      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      audioRef.current?.pause();
       document.removeEventListener("click",      onInteract);
       document.removeEventListener("touchstart", onInteract);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scheduleAutoStop = () => {
-    if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
-    autoStopTimerRef.current = setTimeout(() => {
-      // Auto-pause after 20s (user can still hit play)
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-        // Reset to start so next play starts from beginning
-        audioRef.current.currentTime = 0;
-      }
-    }, 20000);
-  };
-
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
       userPausedRef.current = false;
-      if (audio.ended || audio.currentTime === 0) audio.currentTime = 0;
+      if (audio.ended) audio.currentTime = 0;
       audio.play().catch(() => {});
     } else {
       userPausedRef.current = true;
-      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
       audio.pause();
     }
   }, []);
+
+  const playNextTrack = useCallback(() => {
+    const playlist = playlistRef.current;
+    if (!playlist.length) return;
+    const nextIndex = (playIndexRef.current + 1) % playlist.length;
+    playIndexRef.current = nextIndex;
+    userPausedRef.current = false;
+    loadTrack(playlist[nextIndex], true);
+  }, [loadTrack]);
 
   // FAB glitch refs (go on inner powered-logo divs, NOT the absolute wrapper)
   const fabSidebarRef = useRef<HTMLDivElement>(null);
@@ -248,6 +272,8 @@ export default function Home() {
                 <NowPlayingPill
                   isPlaying={isPlaying}
                   onToggle={togglePlay}
+                  onNext={playNextTrack}
+                  hasNext={hasNext}
                   title={trackTitle}
                 />
               </div>
@@ -302,6 +328,8 @@ export default function Home() {
               <NowPlayingPill
                 isPlaying={isPlaying}
                 onToggle={togglePlay}
+                onNext={playNextTrack}
+                hasNext={hasNext}
                 title={trackTitle}
               />
             )}
