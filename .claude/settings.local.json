@@ -67,7 +67,8 @@
       "Bash(ssh alexPi@192.168.1.26 \"cd ~/soundglobalmusic && git pull && docker compose up -d --build 2>&1 | tail -8\")",
       "Bash(git commit *)",
       "Bash(ssh alexPi@192.168.1.26 \"cd ~/soundglobalmusic && git pull && docker compose up -d --build 2>&1 | tail -6\")",
-      "Bash(ssh alexPi@192.168.1.26 \"cd ~/soundglobalmusic && git pull && docker compose up -d --build 2>&1 | tail -10\")"
+      "Bash(ssh alexPi@192.168.1.26 \"cd ~/soundglobalmusic && git pull && docker compose up -d --build 2>&1 | tail -10\")",
+      "Bash(ssh alexPi@192.168.1.26 \"cd ~/soundglobalmusic && git pull && docker compose up -d --build 2>&1 | tail -7\")"
     ]
   }
 }

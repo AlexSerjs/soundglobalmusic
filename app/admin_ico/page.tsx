@@ -299,8 +299,9 @@ export default function AdminPage() {
       const { override: sceneOverride } = await sceneRes.json();
       if (sceneOverride?.artists) {
         setScene(
-          sceneOverride.artists.map((a: { name: string; topSong: string }) => ({
-            name: a.name, topSong: a.topSong ?? "",
+          sceneOverride.artists.map((a: { name: string; topSong?: string; topTrack?: { name: string } }) => ({
+            name: a.name,
+            topSong: a.topTrack?.name ?? a.topSong ?? "",
           }))
         );
         setAutoScene(false);

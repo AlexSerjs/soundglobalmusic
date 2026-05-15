@@ -53,6 +53,8 @@ export async function POST(
   }
 
   try {
+    // Enrich and save in SceneArtist format (same as the live scene route)
+    // so the CountryModal component renders it without crashing
     const enriched = await Promise.all(
       body.artists.map(async (a) => {
         const [deezerArtist, deezerTrack] = await Promise.all([
@@ -62,12 +64,19 @@ export async function POST(
 
         return {
           name:      a.name,
-          topSong:   a.topSong,
           imageUrl:  deezerArtist?.imageUrl  ?? "",
+          genres:    [] as string[],
+          listeners: 0,
+          lastfmUrl: "",
           deezerUrl: deezerArtist?.deezerUrl ?? "",
-          previewUrl:    deezerTrack?.previewUrl    ?? "",
-          albumImageUrl: deezerTrack?.albumImageUrl ?? deezerArtist?.imageUrl ?? "",
-          deezerTrackUrl: deezerTrack?.deezerUrl ?? "",
+          source:    "manual" as const,
+          topTrack:  a.topSong ? {
+            name:         a.topSong,
+            albumImageUrl: deezerTrack?.albumImageUrl ?? deezerArtist?.imageUrl ?? "",
+            previewUrl:   deezerTrack?.previewUrl ?? "",
+            deezerUrl:    deezerTrack?.deezerUrl ?? "",
+            durationMs:   deezerTrack?.durationMs ?? 0,
+          } : null,
         };
       })
     );

@@ -159,9 +159,28 @@ export async function GET(
   const countryCode = code.toUpperCase();
 
   // ── Manual override (admin panel) — highest priority ─────────────────────
-  const sceneOverride = await cacheGet(`override:scene:v1:${countryCode}`);
+  const sceneOverride = await cacheGet<{
+    artists: (SceneArtist & { previewUrl?: string; albumImageUrl?: string; topSong?: string })[];
+  }>(`override:scene:v1:${countryCode}`);
   if (sceneOverride) {
-    return NextResponse.json(sceneOverride, {
+    // Normalize legacy flat format → SceneArtist (topTrack object)
+    const artists: SceneArtist[] = (sceneOverride.artists ?? []).map((a) => ({
+      name:      a.name,
+      imageUrl:  a.imageUrl  ?? "",
+      genres:    a.genres    ?? [],
+      listeners: a.listeners ?? 0,
+      lastfmUrl: a.lastfmUrl ?? "",
+      deezerUrl: a.deezerUrl ?? "",
+      source:    (a.source === "wikidata" || a.source === "groq") ? a.source : undefined,
+      topTrack:  a.topTrack ?? (a.topSong ? {
+        name:          a.topSong,
+        albumImageUrl: a.albumImageUrl ?? "",
+        previewUrl:    a.previewUrl    ?? "",
+        deezerUrl:     (a as { deezerTrackUrl?: string }).deezerTrackUrl ?? "",
+        durationMs:    0,
+      } : null),
+    }));
+    return NextResponse.json({ artists }, {
       headers: { "X-Cache": "OVERRIDE", "Cache-Control": "no-store" },
     });
   }
