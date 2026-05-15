@@ -15,10 +15,10 @@ interface ExtractedTrack  { rank: number; title: string; artist: string; }
 interface ExtractedArtist { name: string; genre: string; }
 interface ExtractedScene  { name: string; topSong: string; }
 
-type Section = "tracks" | "artists" | "scene";
+type SectionKey = "tracks" | "artists" | "scene";
 
 interface PendingExtract {
-  section: Section;
+  section: SectionKey;
   preview: string;   // object URL for image preview
   fileName: string;
 }
@@ -31,13 +31,13 @@ interface OverrideInfo {
   artistCount?: number;
 }
 
-const SECTION_LABELS: Record<Section, string> = {
+const SECTION_LABELS: Record<SectionKey, string> = {
   tracks:  "Lo más popular",
   artists: "Top Artistas",
   scene:   "Escena Local",
 };
 
-const SECTION_ICONS: Record<Section, string> = {
+const SECTION_ICONS: Record<SectionKey, string> = {
   tracks:  "🎵",
   artists: "🎤",
   scene:   "🎸",
@@ -166,6 +166,33 @@ function SummaryModal({
   );
 }
 
+// ── Mini toggle switch ────────────────────────────────────────────────────────
+function MiniToggle({
+  active,
+  onToggle,
+  disabled,
+}: {
+  active: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      title={active ? "Pausar auto-actualización" : "Reanudar auto-actualización"}
+      className="flex flex-col items-center gap-0.5 disabled:opacity-40"
+    >
+      <div className={`relative w-9 h-5 rounded-full transition-colors duration-300 ${active ? "bg-green-500" : "bg-gray-600"}`}>
+        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-300 ${active ? "left-[18px]" : "left-0.5"}`} />
+      </div>
+      <span className={`text-[9px] font-medium transition-colors ${active ? "text-green-400" : "text-gray-500"}`}>
+        {disabled ? "…" : active ? "Auto" : "Pausado"}
+      </span>
+    </button>
+  );
+}
+
 // ── Main admin panel ──────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [token, setToken]               = useState<string | null>(null);
@@ -188,14 +215,18 @@ export default function AdminPage() {
   const [showDropdown, setShowDropdown] = useState(false);
 
   const [overrideInfo, setOverrideInfo] = useState<OverrideInfo | null>(null);
-  const [autoUpdate, setAutoUpdate]     = useState(true);  // true = no override active
+
+  // Per-section auto-update toggles (true = auto/no override, false = paused/overridden)
+  const [autoTracks, setAutoTracks]   = useState(true);
+  const [autoArtists, setAutoArtists] = useState(true);
+  const [autoScene, setAutoScene]     = useState(true);
 
   const [tracks, setTracks]     = useState<ExtractedTrack[]>([]);
   const [artists, setArtists]   = useState<ExtractedArtist[]>([]);
   const [scene, setScene]       = useState<ExtractedScene[]>([]);
 
   const [pending, setPending]         = useState<PendingExtract | null>(null);
-  const [extractingSection, setExtractingSection] = useState<Section | null>(null);
+  const [extractingSection, setExtractingSection] = useState<SectionKey | null>(null);
   const [saving, setSaving]           = useState(false);
   const [savingScene, setSavingScene] = useState(false);
   const [msg, setMsg]           = useState<{ text: string; type: "ok" | "err" | "info" } | null>(null);
@@ -224,36 +255,41 @@ export default function AdminPage() {
   // ── Load override info when country changes ────────────────────────────────
   const loadOverride = useCallback(async (code: string) => {
     if (!token || !code) return;
+
     const res = await fetch(`/api/admin/override/${code}`, {
       headers: { "x-admin-token": token },
     });
-    const { override } = await res.json();
-    if (override) {
-      setOverrideInfo({
-        exists: true,
-        source: override.source,
-        cachedAt: override.cachedAt,
-        trackCount: override.topTracks?.length ?? 0,
-        artistCount: override.topArtists?.length ?? 0,
-      });
-      setAutoUpdate(false);
-      // Populate editable tables with saved data
+    const { tracks: savedTracks, artists: savedArtists } = await res.json();
+
+    setAutoTracks(!savedTracks || savedTracks.length === 0);
+    setAutoArtists(!savedArtists || savedArtists.length === 0);
+
+    if (savedTracks?.length) {
       setTracks(
-        (override.topTracks ?? []).map((t: { name: string; artistName: string }, i: number) => ({
+        savedTracks.map((t: { name: string; artistName: string }, i: number) => ({
           rank: i + 1, title: t.name, artist: t.artistName,
         }))
       );
+    } else {
+      setTracks([]);
+    }
+
+    if (savedArtists?.length) {
       setArtists(
-        (override.topArtists ?? []).map((a: { name: string; genres: string[] }) => ({
+        savedArtists.map((a: { name: string; genres: string[] }) => ({
           name: a.name, genre: a.genres?.[0] ?? "",
         }))
       );
     } else {
-      setOverrideInfo({ exists: false });
-      setAutoUpdate(true);
-      setTracks([]);
       setArtists([]);
     }
+
+    setOverrideInfo({
+      exists: !!(savedTracks?.length || savedArtists?.length),
+      trackCount: savedTracks?.length ?? 0,
+      artistCount: savedArtists?.length ?? 0,
+      cachedAt: Date.now(),
+    });
 
     // Load scene override separately (stored in its own key)
     const sceneRes = await fetch(`/api/admin/scene/${code}`, {
@@ -267,8 +303,10 @@ export default function AdminPage() {
             name: a.name, topSong: a.topSong ?? "",
           }))
         );
+        setAutoScene(false);
       } else {
         setScene([]);
+        setAutoScene(true);
       }
     }
   }, [token]);
@@ -278,7 +316,7 @@ export default function AdminPage() {
   }, [countryCode, loadOverride]);
 
   // ── Image selected → show summary ─────────────────────────────────────────
-  const handleFileChange = (section: Section, file: File) => {
+  const handleFileChange = (section: SectionKey, file: File) => {
     const preview = URL.createObjectURL(file);
     setPending({ section, preview, fileName: file.name });
   };
@@ -352,6 +390,10 @@ export default function AdminPage() {
     setSaving(true);
     showMsg("Buscando previews en Deezer y guardando…", "info");
 
+    const section = tracks.length > 0 && artists.length > 0 ? "both"
+                  : tracks.length > 0 ? "tracks"
+                  : "artists";
+
     try {
       const res = await fetch(`/api/admin/override/${countryCode}`, {
         method: "POST",
@@ -361,6 +403,7 @@ export default function AdminPage() {
         },
         body: JSON.stringify({
           countryName,
+          section,
           tracks: tracks.map((t) => ({ title: t.title, artist: t.artist })),
           artists: artists.map((a) => ({ name: a.name, genre: a.genre })),
         }),
@@ -368,7 +411,6 @@ export default function AdminPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showMsg(`✅ ¡Guardado! ${countryName} ya muestra los nuevos datos. Abre el mapa y haz clic en el país para verlo.`, "ok");
-      setAutoUpdate(false);
       await loadOverride(countryCode);
     } catch (e) {
       showMsg(`Error al guardar: ${e}`, "err");
@@ -394,6 +436,7 @@ export default function AdminPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showMsg(`✅ ¡Escena local guardada! Abre el mapa, clic en ${countryName} → tab Escena Local para verlo.`, "ok");
+      setAutoScene(false);
     } catch (e) {
       showMsg(`Error al guardar escena: ${e}`, "err");
     } finally {
@@ -401,34 +444,61 @@ export default function AdminPage() {
     }
   };
 
-  // ── Toggle auto-update ─────────────────────────────────────────────────────
-  const toggleAutoUpdate = async () => {
+  // ── Toggle per-section auto-update ────────────────────────────────────────
+  const toggleSection = async (section: SectionKey) => {
     if (!token || !countryCode) return;
+    const isAuto = section === "tracks" ? autoTracks
+                 : section === "artists" ? autoArtists
+                 : autoScene;
 
-    if (autoUpdate) {
-      // Pause: fetch current data and save as override (freeze it)
+    if (isAuto) {
+      // Pause: fetch current data and freeze just this section
       setSaving(true);
-      showMsg("Pausando auto-actualización — congelando datos actuales…", "info");
+      showMsg("Congelando datos actuales…", "info");
       try {
-        const res  = await fetch(`/api/country/${countryCode}`);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-
-        const saveRes = await fetch(`/api/admin/override/${countryCode}`, {
-          method: "POST",
-          headers: { "x-admin-token": token!, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            countryName,
-            tracks: (data.topTracks ?? []).map((t: { name: string; artistName: string }) => ({
-              title: t.name, artist: t.artistName,
-            })),
-            artists: (data.topArtists ?? []).map((a: { name: string; genres: string[] }) => ({
-              name: a.name, genre: a.genres?.[0] ?? "",
-            })),
-          }),
-        });
-        if (!saveRes.ok) throw new Error("No se pudo guardar");
-        showMsg("⏸ Auto-actualización pausada. Datos congelados.", "ok");
+        if (section === "scene") {
+          const res = await fetch(`/api/country/${countryCode}/scene`);
+          const data = await res.json();
+          await fetch(`/api/admin/scene/${countryCode}`, {
+            method: "POST",
+            headers: { "x-admin-token": token!, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              countryName,
+              artists: (data.artists ?? []).map((a: { name: string; topTrack?: { name: string } }) => ({
+                name: a.name, topSong: a.topTrack?.name ?? "",
+              })),
+            }),
+          });
+          setAutoScene(false);
+        } else {
+          const res = await fetch(`/api/country/${countryCode}`);
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          await fetch(`/api/admin/override/${countryCode}`, {
+            method: "POST",
+            headers: { "x-admin-token": token!, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              countryName,
+              section,
+              tracks: section === "tracks"
+                ? (data.topTracks ?? []).map((t: { name: string; artistName: string }) => ({
+                    title: t.name, artist: t.artistName,
+                  }))
+                : [],
+              artists: section === "artists"
+                ? (data.topArtists ?? []).map((a: { name: string; genres: string[] }) => ({
+                    name: a.name, genre: a.genres?.[0] ?? "",
+                  }))
+                : [],
+            }),
+          });
+          if (section === "tracks") setAutoTracks(false);
+          else setAutoArtists(false);
+        }
+        const label = section === "tracks" ? "Lo más popular"
+                    : section === "artists" ? "Top Artistas"
+                    : "Escena Local";
+        showMsg(`⏸ ${label} pausado.`, "ok");
         await loadOverride(countryCode);
       } catch (e) {
         showMsg(`Error: ${e}`, "err");
@@ -436,20 +506,30 @@ export default function AdminPage() {
         setSaving(false);
       }
     } else {
-      // Resume: delete override
-      await fetch(`/api/admin/override/${countryCode}`, {
-        method: "DELETE",
-        headers: { "x-admin-token": token! },
-      });
-      setAutoUpdate(true);
-      setOverrideInfo({ exists: false });
-      setTracks([]);
-      setArtists([]);
-      showMsg("🔄 Auto-actualización reactivada. Last.fm/Groq actualizarán los datos.", "ok");
+      // Resume: delete only this section's override
+      if (section === "scene") {
+        await fetch(`/api/admin/scene/${countryCode}`, {
+          method: "DELETE",
+          headers: { "x-admin-token": token! },
+        });
+        setAutoScene(true);
+        setScene([]);
+      } else {
+        await fetch(`/api/admin/override/${countryCode}?section=${section}`, {
+          method: "DELETE",
+          headers: { "x-admin-token": token! },
+        });
+        if (section === "tracks") { setAutoTracks(true); setTracks([]); }
+        else { setAutoArtists(true); setArtists([]); }
+      }
+      const label = section === "tracks" ? "Lo más popular"
+                  : section === "artists" ? "Top Artistas"
+                  : "Escena Local";
+      showMsg(`🔄 ${label} reactivado.`, "ok");
     }
   };
 
-  // ── Clear override ─────────────────────────────────────────────────────────
+  // ── Clear ALL overrides ────────────────────────────────────────────────────
   const clearOverride = async () => {
     if (!token || !countryCode || !confirm(`¿Eliminar override de ${countryName}?`)) return;
     await Promise.all([
@@ -460,7 +540,9 @@ export default function AdminPage() {
         method: "DELETE", headers: { "x-admin-token": token },
       }),
     ]);
-    setAutoUpdate(true);
+    setAutoTracks(true);
+    setAutoArtists(true);
+    setAutoScene(true);
     setOverrideInfo({ exists: false });
     setTracks([]);
     setArtists([]);
@@ -474,6 +556,8 @@ export default function AdminPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!authed) return <AuthGate onAuth={handleAuth} />;
+
+  const anyOverrideActive = !autoTracks || !autoArtists || !autoScene;
 
   return (
     <div className="min-h-screen" style={{ background: "#0d1b2a" }}>
@@ -553,55 +637,34 @@ export default function AdminPage() {
 
         {/* Country status card */}
         {countryCode && (
-          <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-white font-bold text-base">{countryName}</h2>
-                {overrideInfo?.exists ? (
-                  <p className="text-xs text-amber-400 mt-0.5">
-                    📌 Override activo — {overrideInfo.trackCount} tracks · {overrideInfo.artistCount} artistas
-                    {overrideInfo.cachedAt && (
-                      <span className="text-gray-500 ml-1">
-                        · guardado {new Date(overrideInfo.cachedAt).toLocaleDateString("es-ES")}
-                      </span>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-xs text-green-400 mt-0.5">
-                    🔄 Auto-actualización activa (Last.fm / Groq cada 6h)
-                  </p>
-                )}
-              </div>
-              {/* Auto-update toggle — sliding switch */}
-              <button
-                onClick={toggleAutoUpdate}
-                disabled={saving}
-                title={autoUpdate ? "Pausar auto-actualización" : "Reanudar auto-actualización"}
-                className="flex flex-col items-center gap-1 disabled:opacity-40 group"
-              >
-                {/* track */}
-                <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 ${
-                  autoUpdate ? "bg-green-500" : "bg-gray-600"
-                }`}>
-                  {/* thumb */}
-                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-300 ${
-                    autoUpdate ? "left-[22px]" : "left-0.5"
-                  }`} />
-                </div>
-                <span className={`text-[10px] font-medium transition-colors ${
-                  autoUpdate ? "text-green-400" : "text-gray-500"
-                }`}>
-                  {saving ? "…" : autoUpdate ? "Auto" : "Pausado"}
+          <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-3">
+            <div>
+              <h2 className="text-white font-bold text-base">{countryName}</h2>
+              {/* Per-section status summary */}
+              <p className="text-xs mt-1 flex items-center gap-2 flex-wrap">
+                <span className={autoTracks ? "text-green-400" : "text-amber-400"}>
+                  {autoTracks ? "🔄" : "⏸"} Popular
                 </span>
-              </button>
+                <span className={autoArtists ? "text-green-400" : "text-amber-400"}>
+                  {autoArtists ? "🔄" : "⏸"} Artistas
+                </span>
+                <span className={autoScene ? "text-green-400" : "text-amber-400"}>
+                  {autoScene ? "🔄" : "⏸"} Escena
+                </span>
+              </p>
+              {overrideInfo?.cachedAt && anyOverrideActive && (
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Override activo · {overrideInfo.trackCount ?? 0} tracks · {overrideInfo.artistCount ?? 0} artistas
+                </p>
+              )}
             </div>
 
-            {overrideInfo?.exists && (
+            {anyOverrideActive && (
               <button
                 onClick={clearOverride}
                 className="text-xs text-red-400/60 hover:text-red-400 transition-colors"
               >
-                🗑 Eliminar override completo
+                🗑 Eliminar todos los overrides
               </button>
             )}
           </div>
@@ -618,6 +681,9 @@ export default function AdminPage() {
               fileRef={tracksFileRef}
               onFileChange={(f) => handleFileChange("tracks", f)}
               extracting={extractingSection === "tracks"}
+              autoState={autoTracks}
+              onToggle={() => toggleSection("tracks")}
+              toggleDisabled={saving}
             >
               {tracks.length > 0 && (
                 <EditableTrackTable tracks={tracks} onChange={setTracks} />
@@ -632,6 +698,9 @@ export default function AdminPage() {
               fileRef={artistsFileRef}
               onFileChange={(f) => handleFileChange("artists", f)}
               extracting={extractingSection === "artists"}
+              autoState={autoArtists}
+              onToggle={() => toggleSection("artists")}
+              toggleDisabled={saving}
             >
               {artists.length > 0 && (
                 <EditableArtistTable artists={artists} onChange={setArtists} />
@@ -668,6 +737,9 @@ export default function AdminPage() {
               fileRef={sceneFileRef}
               onFileChange={(f) => handleFileChange("scene", f)}
               extracting={extractingSection === "scene"}
+              autoState={autoScene}
+              onToggle={() => toggleSection("scene")}
+              toggleDisabled={saving}
             >
               {scene.length > 0 && (
                 <EditableSceneTable scene={scene} onChange={setScene} />
@@ -692,12 +764,16 @@ export default function AdminPage() {
 
 // ── Section card ──────────────────────────────────────────────────────────────
 function Section({
-  title, icon, description, fileRef, onFileChange, extracting, children,
+  title, icon, description, fileRef, onFileChange, extracting,
+  autoState, onToggle, toggleDisabled, children,
 }: {
   title: string; icon: string; description: string;
   fileRef: React.RefObject<HTMLInputElement | null>;
   onFileChange: (f: File) => void;
   extracting: boolean;
+  autoState: boolean;
+  onToggle: () => void;
+  toggleDisabled?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -707,13 +783,16 @@ function Section({
           <h3 className="text-white font-semibold text-sm">{icon} {title}</h3>
           <p className="text-xs text-gray-500 mt-0.5">{description}</p>
         </div>
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={extracting}
-          className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40"
-        >
-          📸 Subir captura
-        </button>
+        <div className="flex items-center gap-2">
+          <MiniToggle active={autoState} onToggle={onToggle} disabled={toggleDisabled} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={extracting}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+          >
+            📸 Subir captura
+          </button>
+        </div>
       </div>
       <input
         type="file"

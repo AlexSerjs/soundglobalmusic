@@ -29,23 +29,51 @@ export async function GET(
   const { code } = await params;
   const countryCode = code.toUpperCase();
 
-  // ── Manual override (admin panel) — highest priority ─────────────────────
-  const override = await cacheGet<CountryData>(`override:country:v1:${countryCode}`);
-  if (override) {
-    return NextResponse.json(override, {
+  // ── Per-section overrides (highest priority) ──────────────────────────────
+  const [trackOvr, artistOvr] = await Promise.all([
+    cacheGet<Track[]>(`override:tracks:v1:${countryCode}`),
+    cacheGet<Artist[]>(`override:artists:v1:${countryCode}`),
+  ]);
+
+  // Legacy combined override (backward compat) — only if no per-section keys
+  const legacyOvr = (!trackOvr && !artistOvr)
+    ? await cacheGet<CountryData>(`override:country:v1:${countryCode}`)
+    : null;
+
+  if (legacyOvr) {
+    return NextResponse.json(legacyOvr, {
+      headers: { "X-Cache": "OVERRIDE", "Cache-Control": "no-store" },
+    });
+  }
+
+  // ── If BOTH sections are overridden → return immediately ─────────────────
+  const info = getCountryInfo(countryCode);
+  if (trackOvr && artistOvr) {
+    const countryNameForCode = info?.name ?? GROQ_COUNTRY_NAMES[countryCode] ?? countryCode;
+    return NextResponse.json({
+      countryCode,
+      countryName: countryNameForCode,
+      topTracks: trackOvr,
+      topArtists: artistOvr,
+      cachedAt: Date.now(),
+      source: "manual",
+    } as CountryData, {
       headers: { "X-Cache": "OVERRIDE", "Cache-Control": "no-store" },
     });
   }
 
   // ── Last.fm path (countries in COUNTRY_MAP) ──────────────────────────────
-  const info = getCountryInfo(countryCode);
   if (info) {
     const cacheKey = `country:v2:${countryCode}`;
-    const cached = await cacheGet<CountryData>(cacheKey);
-    if (cached) {
-      return NextResponse.json(cached, {
-        headers: { "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" },
-      });
+
+    // Only use regular cache when no per-section override is active
+    if (!trackOvr && !artistOvr) {
+      const cached = await cacheGet<CountryData>(cacheKey);
+      if (cached) {
+        return NextResponse.json(cached, {
+          headers: { "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" },
+        });
+      }
     }
 
     try {
@@ -120,6 +148,16 @@ export async function GET(
         source: trackSource === "groq" ? "groq" : "lastfm",
       };
 
+      // Apply per-section overrides — skip caching if any override is active
+      if (trackOvr || artistOvr) {
+        if (trackOvr) data.topTracks = trackOvr;
+        if (artistOvr) data.topArtists = artistOvr;
+        data.source = "manual";
+        return NextResponse.json(data, {
+          headers: { "X-Cache": "PARTIAL-OVERRIDE", "Cache-Control": "no-store" },
+        });
+      }
+
       await cacheSet(cacheKey, data, LASTFM_TTL);
       return NextResponse.json(data, {
         headers: { "X-Cache": "MISS", "Cache-Control": "public, max-age=3600" },
@@ -140,11 +178,15 @@ export async function GET(
   }
 
   const groqCacheKey = `country:groq:v1:${countryCode}`;
-  const groqCached = await cacheGet<CountryData>(groqCacheKey);
-  if (groqCached) {
-    return NextResponse.json(groqCached, {
-      headers: { "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" },
-    });
+
+  // Only use regular cache when no per-section override is active
+  if (!trackOvr && !artistOvr) {
+    const groqCached = await cacheGet<CountryData>(groqCacheKey);
+    if (groqCached) {
+      return NextResponse.json(groqCached, {
+        headers: { "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" },
+      });
+    }
   }
 
   try {
@@ -196,6 +238,16 @@ export async function GET(
       cachedAt: Date.now(),
       source: "groq",
     };
+
+    // Apply per-section overrides — skip caching if any override is active
+    if (trackOvr || artistOvr) {
+      if (trackOvr) data.topTracks = trackOvr;
+      if (artistOvr) data.topArtists = artistOvr;
+      data.source = "manual";
+      return NextResponse.json(data, {
+        headers: { "X-Cache": "PARTIAL-OVERRIDE", "Cache-Control": "no-store" },
+      });
+    }
 
     await cacheSet(groqCacheKey, data, GROQ_TTL);
     return NextResponse.json(data, {
