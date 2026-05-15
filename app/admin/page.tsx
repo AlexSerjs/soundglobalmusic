@@ -570,17 +570,27 @@ export default function AdminPage() {
                   </p>
                 )}
               </div>
-              {/* Auto-update toggle */}
+              {/* Auto-update toggle — sliding switch */}
               <button
                 onClick={toggleAutoUpdate}
                 disabled={saving}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                  autoUpdate
-                    ? "border-green-500/30 text-green-400 hover:bg-green-500/10"
-                    : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                }`}
+                title={autoUpdate ? "Pausar auto-actualización" : "Reanudar auto-actualización"}
+                className="flex flex-col items-center gap-1 disabled:opacity-40 group"
               >
-                {autoUpdate ? "🔄 Auto · Pausar" : "⏸ Pausado · Reanudar"}
+                {/* track */}
+                <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 ${
+                  autoUpdate ? "bg-green-500" : "bg-gray-600"
+                }`}>
+                  {/* thumb */}
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-300 ${
+                    autoUpdate ? "left-[22px]" : "left-0.5"
+                  }`} />
+                </div>
+                <span className={`text-[10px] font-medium transition-colors ${
+                  autoUpdate ? "text-green-400" : "text-gray-500"
+                }`}>
+                  {saving ? "…" : autoUpdate ? "Auto" : "Pausado"}
+                </span>
               </button>
             </div>
 
