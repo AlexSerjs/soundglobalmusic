@@ -757,6 +757,13 @@ export default function AdminPage() {
             )}
           </>
         )}
+
+        {/* ── Música de introducción ──────────────────────────────────────── */}
+        <div className="border-t border-white/5 pt-4">
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-1 px-1">Global · independiente del país</p>
+        </div>
+        <IntroPlaylistManager token={token!} showMsg={showMsg} />
+
       </div>
     </div>
   );
@@ -929,6 +936,149 @@ function EditableArtistTable({
         </div>
       ))}
       <button onClick={add} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">+ Añadir artista</button>
+    </div>
+  );
+}
+
+// ── Intro Playlist Manager ────────────────────────────────────────────────────
+interface IntroTrack {
+  title: string; artist: string; preview: string;
+  albumImageUrl: string; deezerUrl: string;
+}
+
+function IntroPlaylistManager({ token, showMsg }: {
+  token: string;
+  showMsg: (text: string, type: "ok" | "err" | "info") => void;
+}) {
+  const [playlist, setPlaylist]   = useState<IntroTrack[]>([]);
+  const [newTitle, setNewTitle]   = useState("");
+  const [newArtist, setNewArtist] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified]   = useState<IntroTrack | null>(null);
+  const [saving, setSaving]       = useState(false);
+  const [loaded, setLoaded]       = useState(false);
+  const previewRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/intro-playlist", { headers: { "x-admin-token": token } })
+      .then((r) => r.json())
+      .then((d) => { setPlaylist(d.playlist ?? []); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, [token]);
+
+  const verify = async () => {
+    if (!newTitle.trim()) return;
+    setVerifying(true);
+    setVerified(null);
+    try {
+      const params = new URLSearchParams({ title: newTitle, artist: newArtist });
+      const res  = await fetch(`/api/admin/verify-track?${params}`, { headers: { "x-admin-token": token } });
+      const data = await res.json();
+      if (!res.ok || !data.found) {
+        showMsg("❌ No encontrado en Deezer o sin preview disponible.", "err");
+      } else {
+        setVerified(data);
+        if (previewRef.current) { previewRef.current.pause(); previewRef.current = null; }
+        if (data.preview) {
+          const a = new Audio(data.preview);
+          a.volume = 0.5;
+          a.play().catch(() => {});
+          previewRef.current = a;
+          setTimeout(() => { a.pause(); }, 5000);
+        }
+      }
+    } catch { showMsg("Error verificando", "err"); }
+    finally { setVerifying(false); }
+  };
+
+  const addTrack = () => {
+    if (!verified) return;
+    setPlaylist((p) => [...p, verified]);
+    setVerified(null); setNewTitle(""); setNewArtist("");
+  };
+
+  const remove   = (i: number) => setPlaylist((p) => p.filter((_, j) => j !== i));
+  const moveUp   = (i: number) => { if (i === 0) return; setPlaylist((p) => { const n=[...p]; [n[i-1],n[i]]=[n[i],n[i-1]]; return n; }); };
+  const moveDown = (i: number) => { if (i===playlist.length-1) return; setPlaylist((p) => { const n=[...p]; [n[i],n[i+1]]=[n[i+1],n[i]]; return n; }); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/intro-playlist", {
+        method: "POST",
+        headers: { "x-admin-token": token, "Content-Type": "application/json" },
+        body: JSON.stringify({ playlist }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      showMsg(`✅ Playlist guardada — ${d.count} canciones. Rota cada hora automáticamente.`, "ok");
+    } catch (e) { showMsg(`Error: ${e}`, "err"); }
+    finally { setSaving(false); }
+  };
+
+  const hourIndex = playlist.length > 0 ? Math.floor(Date.now() / 3_600_000) % playlist.length : -1;
+
+  return (
+    <div className="bg-[#0a1628] border border-white/10 rounded-2xl p-5 space-y-4">
+      <div>
+        <h3 className="text-white font-semibold text-sm">🎧 Música de introducción</h3>
+        <p className="text-xs text-gray-500 mt-0.5">Las canciones rotan cada hora. Verifica en Deezer antes de añadir — reproduce 5s para que confirmes.</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input value={newTitle} onChange={(e) => { setNewTitle(e.target.value); setVerified(null); }}
+            onKeyDown={(e) => e.key === "Enter" && verify()} placeholder="Título"
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#38bdf8]/50 min-w-0" />
+          <input value={newArtist} onChange={(e) => { setNewArtist(e.target.value); setVerified(null); }}
+            onKeyDown={(e) => e.key === "Enter" && verify()} placeholder="Artista"
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#38bdf8]/50 min-w-0" />
+          <button onClick={verify} disabled={verifying || !newTitle.trim()}
+            className="flex-shrink-0 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-300 hover:text-white transition-colors disabled:opacity-40">
+            {verifying ? "…" : "🔍 Verificar"}
+          </button>
+        </div>
+        {verified && (
+          <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {verified.albumImageUrl && <img src={verified.albumImageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs font-semibold truncate">{verified.title}</p>
+              <p className="text-green-400 text-[11px]">{verified.artist} · ✅ Preview disponible · 🎵 reproduciendo 5s</p>
+            </div>
+            <button onClick={addTrack} className="flex-shrink-0 px-3 py-1.5 bg-green-500 hover:bg-green-400 text-white text-xs font-bold rounded-lg transition-colors">+ Añadir</button>
+          </div>
+        )}
+      </div>
+
+      {!loaded ? <p className="text-xs text-gray-600">Cargando…</p>
+       : playlist.length === 0 ? <p className="text-xs text-gray-600">Sin canciones — se usa Avicii por defecto.</p>
+       : (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest">{playlist.length} canciones · sonando ahora: #{hourIndex + 1}</p>
+          {playlist.map((t, i) => (
+            <div key={i} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${i===hourIndex ? "bg-[#38bdf8]/10 border border-[#38bdf8]/20" : "bg-white/[0.03]"}`}>
+              <span className="text-gray-500 text-[10px] w-4 text-right flex-shrink-0">{i===hourIndex ? "▶" : i+1}</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {t.albumImageUrl && <img src={t.albumImageUrl} alt="" className="w-7 h-7 rounded object-cover flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs truncate">{t.title}</p>
+                <p className="text-gray-500 text-[10px] truncate">{t.artist}</p>
+              </div>
+              <button onClick={() => moveUp(i)}   className="text-gray-600 hover:text-gray-300 text-xs px-0.5">↑</button>
+              <button onClick={() => moveDown(i)} className="text-gray-600 hover:text-gray-300 text-xs px-0.5">↓</button>
+              <button onClick={() => remove(i)}   className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {playlist.length > 0 && (
+        <button onClick={save} disabled={saving}
+          className="w-full py-2.5 bg-[#38bdf8] hover:bg-[#0ea5e9] disabled:opacity-50 text-[#0d1b2a] font-bold rounded-xl text-sm transition-colors">
+          {saving ? "Guardando…" : `💾 Guardar playlist (${playlist.length} canciones)`}
+        </button>
+      )}
     </div>
   );
 }

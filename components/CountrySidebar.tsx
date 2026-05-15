@@ -123,14 +123,7 @@ export default function CountrySidebar({ onCountryClick, selectedCode }: Country
                 <span className="text-base leading-none flex-shrink-0">{flag(country.code)}</span>
                 <span className="text-sm truncate flex-1">{country.name}</span>
                 {country.isGroq && !isSelected && (
-                  <span
-                    title="Datos via Groq AI"
-                    className="flex-shrink-0 w-4 h-4 rounded-full bg-[#ff4500] flex items-center justify-center"
-                  >
-                    <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M13 2L4.5 13.5H11L10 22L20.5 10H14L13 2Z"/>
-                    </svg>
-                  </span>
+                  <span className="text-[9px] text-cyan-500/50 flex-shrink-0 font-medium">AI</span>
                 )}
                 {isSelected && (
                   <span className="ml-auto flex-shrink-0 w-1.5 h-1.5 rounded-full bg-[#38bdf8]" />

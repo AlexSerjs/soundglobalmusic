@@ -2,6 +2,15 @@
 
 import { useEffect, useRef } from "react";
 
+// Groq logo (lightning bolt)
+function GroqLogo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor">
+      <path d="M58 5 L22 52 H44 L38 95 L80 46 H57 Z"/>
+    </svg>
+  );
+}
+
 // Wikidata logo (stylised "WD" with data bars)
 function WikidataLogo({ size = 28 }: { size?: number }) {
   return (
@@ -59,10 +68,11 @@ export default function PoweredBy() {
   const ref2 = useRef<HTMLDivElement>(null);
   const ref3 = useRef<HTMLDivElement>(null);
   const ref4 = useRef<HTMLDivElement>(null);
+  const ref5 = useRef<HTMLDivElement>(null);
 
   // Random glitch trigger
   useEffect(() => {
-    const elements = [ref1.current, ref2.current, ref3.current, ref4.current].filter(Boolean) as HTMLDivElement[];
+    const elements = [ref1.current, ref2.current, ref3.current, ref4.current, ref5.current].filter(Boolean) as HTMLDivElement[];
 
     const trigger = () => {
       const el = elements[Math.floor(Math.random() * elements.length)];
@@ -150,6 +160,31 @@ export default function PoweredBy() {
           </div>
           <div className="glitch-layer glitch-cyan" aria-hidden>
             <WikidataLogo size={28} />
+          </div>
+        </div>
+      </a>
+
+      <span className="text-gray-700 text-xs">×</span>
+
+      {/* Groq */}
+      <a
+        href="https://groq.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group relative"
+        title="AI suggestions via Groq"
+      >
+        <div
+          ref={ref5}
+          className="powered-logo text-[#f97316] group-hover:text-[#fb923c] transition-colors"
+        >
+          <GroqLogo size={26} />
+          <span className="hidden sm:block text-[8px] text-center font-bold tracking-widest opacity-70 mt-0.5">GROQ</span>
+          <div className="glitch-layer glitch-red" aria-hidden>
+            <GroqLogo size={26} />
+          </div>
+          <div className="glitch-layer glitch-cyan" aria-hidden>
+            <GroqLogo size={26} />
           </div>
         </div>
       </a>
