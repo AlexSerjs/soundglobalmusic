@@ -3,6 +3,24 @@ import { cacheGet, cacheSetPermanent, cacheDel } from "@/lib/redis";
 import { findTrackOnDeezer, findArtistOnDeezer } from "@/lib/deezer";
 import type { Artist, Track } from "@/types";
 
+const LFM = "https://ws.audioscrobbler.com/2.0/";
+function lfmKey() { return process.env.LASTFM_API_KEY!; }
+
+async function lfmArtistInfo(name: string): Promise<{ listeners: number; genres: string[]; url: string }> {
+  try {
+    const url = `${LFM}?method=artist.getinfo&artist=${encodeURIComponent(name)}&autocorrect=1&api_key=${lfmKey()}&format=json`;
+    const res  = await fetch(url, { next: { revalidate: 0 } });
+    const data = await res.json();
+    return {
+      listeners: parseInt(data.artist?.stats?.listeners ?? "0", 10),
+      genres:    data.artist?.tags?.tag?.slice(0, 3).map((t: { name: string }) => t.name) ?? [],
+      url:       data.artist?.url ?? `https://www.last.fm/music/${encodeURIComponent(name)}`,
+    };
+  } catch {
+    return { listeners: 0, genres: [], url: "" };
+  }
+}
+
 function checkAuth(req: NextRequest): boolean {
   const token = req.headers.get("x-admin-token");
   return token === process.env.ADMIN_PASSWORD;
@@ -93,20 +111,23 @@ export async function POST(
       });
     }
 
-    // Enrich artists with Deezer images
+    // Enrich artists with Deezer images + Last.fm listeners & genres
     const topArtists: Artist[] = [];
     if (body.artists?.length) {
-      const deezerResults = await Promise.all(
-        body.artists.map((a) => findArtistOnDeezer(a.name))
-      );
+      const [deezerResults, lfmResults] = await Promise.all([
+        Promise.all(body.artists.map((a) => findArtistOnDeezer(a.name))),
+        Promise.all(body.artists.map((a) => lfmArtistInfo(a.name))),
+      ]);
       body.artists.forEach((a, i) => {
+        const lfm = lfmResults[i];
         topArtists.push({
           id:        encodeURIComponent(a.name),
           name:      a.name,
           imageUrl:  deezerResults[i]?.imageUrl ?? "",
-          genres:    a.genre ? [a.genre] : [],
-          listeners: 0,
-          lastfmUrl: "",
+          // Prefer Last.fm genres; fall back to manually entered genre
+          genres:    lfm.genres.length > 0 ? lfm.genres : (a.genre ? [a.genre] : []),
+          listeners: lfm.listeners,
+          lastfmUrl: lfm.url,
           deezerUrl: deezerResults[i]?.deezerUrl ?? "",
         });
       });
