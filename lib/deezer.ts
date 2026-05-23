@@ -41,29 +41,47 @@ export interface DeezerArtistResult {
   fans: number;
 }
 
+// Extract the first/main artist from a collaboration string like "A & B & C" or "A feat. B"
+function primaryArtist(name: string): string {
+  return name.split(/\s*[&,]\s*|\s+feat\.?\s+/i)[0].trim();
+}
+
 export async function findTrackOnDeezer(
   trackName: string,
   artistName: string
 ): Promise<DeezerTrackResult | null> {
-  try {
-    const q = `track:"${trackName}" artist:"${artistName}"`;
-    const res = await axios.get<DeezerSearchResponse<DeezerTrack>>(
-      `${BASE}/search`,
-      { params: { q, limit: 1 }, timeout: 5000 }
-    );
+  // Build a list of queries to try in order — most specific first
+  const mainArtist = primaryArtist(artistName);
+  const queries = [
+    `track:"${trackName}" artist:"${artistName}"`,          // exact collab
+    ...(mainArtist !== artistName
+      ? [`track:"${trackName}" artist:"${mainArtist}"`]     // main artist only
+      : []),
+    `"${mainArtist}" "${trackName}"`,                       // loose keyword
+  ];
 
-    const track = res.data.data?.[0];
-    if (!track) return null;
-
-    return {
-      previewUrl: track.preview,
-      albumImageUrl: track.album.cover_medium || track.album.cover_xl,
-      deezerUrl: track.link,
-      durationMs: track.duration * 1000,
-    };
-  } catch {
-    return null;
+  for (const q of queries) {
+    try {
+      const res = await axios.get<DeezerSearchResponse<DeezerTrack>>(
+        `${BASE}/search`,
+        { params: { q, limit: 5 }, timeout: 5000 }
+      );
+      // Prefer results that have a preview URL
+      const withPreview = res.data.data?.filter((t) => t.preview);
+      const track = withPreview?.[0] ?? res.data.data?.[0];
+      if (track) {
+        return {
+          previewUrl: track.preview,
+          albumImageUrl: track.album.cover_medium || track.album.cover_xl,
+          deezerUrl: track.link,
+          durationMs: track.duration * 1000,
+        };
+      }
+    } catch {
+      // try next query
+    }
   }
+  return null;
 }
 
 export async function findArtistOnDeezer(
