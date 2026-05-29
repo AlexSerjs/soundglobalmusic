@@ -23,7 +23,11 @@ const FAKE_404 = `<!DOCTYPE html>
 </body>
 </html>`;
 
-// ── Check if an IP address is from a private/local network ────────────────────
+// ── Check if an IP is from a private/local network OR Tailscale tailnet ─────
+// Allows: localhost, RFC1918 LAN, and Tailscale CGNAT (100.64.0.0/10).
+// Docker is configured with userland-proxy: false on the VPS, so NPM
+// forwards the real client IP via X-Real-IP / X-Forwarded-For — no need
+// to allow the Docker bridge range here.
 function isLocalIP(ip: string): boolean {
   if (!ip) return false;
 
@@ -42,7 +46,8 @@ function isLocalIP(ip: string): boolean {
     a === 10 ||                          // 10.0.0.0/8
     a === 127 ||                         // 127.0.0.0/8
     (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
-    (a === 192 && b === 168)             // 192.168.0.0/16
+    (a === 192 && b === 168) ||          // 192.168.0.0/16
+    (a === 100 && b >= 64 && b <= 127)   // Tailscale CGNAT 100.64.0.0/10
   );
 }
 

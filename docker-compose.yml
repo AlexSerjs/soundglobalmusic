@@ -3,15 +3,19 @@ services:
     build: .
     container_name: soundglobalmusic
     restart: unless-stopped
-    ports:
-      - "3001:3000"
+    expose:
+      - "3000"
     env_file:
       - .env.local
     environment:
       - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - internal
+      - proxy_network
 
   redis:
     image: redis:7-alpine
@@ -25,6 +29,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - internal
 
 volumes:
   redis_data:
+
+networks:
+  internal:
+    driver: bridge
+  proxy_network:
+    external: true
+    name: proxy_network
