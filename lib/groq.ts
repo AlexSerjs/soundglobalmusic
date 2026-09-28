@@ -10,7 +10,7 @@ function groqKey() {
   return key;
 }
 
-async function groqJSON<T>(prompt: string, maxTokens = 700): Promise<T> {
+async function groqJSON<T>(prompt: string, maxTokens = 1500): Promise<T> {
   const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
@@ -21,6 +21,7 @@ async function groqJSON<T>(prompt: string, maxTokens = 700): Promise<T> {
       model: MODEL,
       temperature: 0.2,
       max_tokens: maxTokens,
+      reasoning_effort: "low",
       messages: [
         {
           role: "system",
@@ -69,8 +70,7 @@ export async function getLocalTracksFromGroq(countryName: string): Promise<GroqT
     `List 10 iconic or popular songs by music artists who are FROM ${countryName} ` +
     `(the artist must be a national of ${countryName}, not just popular there). ` +
     `Include a mix of classic hits and recent songs. ` +
-    `Respond ONLY with this JSON: {"tracks":[{"title":"string","artist":"string"}]}`,
-    800
+    `Respond ONLY with this JSON: {"tracks":[{"title":"string","artist":"string"}]}`
   );
   return result.tracks ?? [];
 }
